@@ -3,9 +3,8 @@ use aws_sdk_s3::Client;
 use crossterm::{event::{self, DisableMouseCapture, EnableMouseCapture, Event as CEvent, KeyCode}, execute, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}};
 use ratatui::{backend::CrosstermBackend, Terminal, widgets::{Block, Borders, Table, Row, Cell, Paragraph, Clear, Gauge}, layout::{Constraint, Direction, Layout, Rect}, style::{Color, Modifier, Style}};
 use crate::config::{S3Config, DataStoreConfig};
-use log::info;
-use crate::restore;
 use dirs;
+use crate::restore::{download_snapshot, restore_to_datastore};
 
 enum Event<I> { Input(I), Tick }
 
@@ -37,7 +36,7 @@ pub async fn run_app(s3_client: Client, s3_cfg: S3Config, ds_cfg: DataStoreConfi
     if let Some(contents) = out.contents { for obj in contents {
         let key = obj.key.unwrap_or_default();
         let size = obj.size as u64;
-        let date = obj.last_modified.unwrap().to_string();
+        let date = format!("{:?}", obj.last_modified.unwrap());
         app.items.push((key, size, date));
     }}
     // sort: newest first alphabetical
@@ -82,23 +81,15 @@ pub async fn run_app(s3_client: Client, s3_cfg: S3Config, ds_cfg: DataStoreConfi
     if confirmed {
         let (key, _size, _date) = &app.items[app.state];
         let dest = dirs::download_dir().unwrap_or(dirs::home_dir().unwrap()).join(key);
-        let head = s3_client.head_object().bucket(&s3_cfg.bucket).key(key).send().await?;
-        app.total = head.content_length as u64;
         app.show_download = true;
-        let mut stream = s3_client.get_object().bucket(&s3_cfg.bucket).key(key).send().await?.body;
-        let mut file = tokio::fs::File::create(&dest).await?;
-        while let Some(bytes) = stream.recv().await? {
-            file.write_all(&bytes).await?;
-            app.downloaded += bytes.len() as u64;
-            terminal.draw(|f| ui(f, &app))?;
-        }
+        download_snapshot(&s3_client, &s3_cfg.bucket, key, &dest).await?;
         app.show_download = false;
         // setup restore modal
         let cmd = format!("rustored restore --source {:?} --datastore-config", dest);
         app.raw_cmd = cmd;
         app.show_restore = true;
         // spawn restore task
-        let rt = tokio::spawn(async move { restore::restore_to_datastore(&dest, &ds_cfg).await });
+        let rt = tokio::spawn(async move { restore_to_datastore(&dest, &ds_cfg).await });
         // modal event loop
         loop {
             terminal.draw(|f| ui(f, &app))?;
@@ -126,7 +117,11 @@ fn ui<B: ratatui::backend::Backend>(f: &mut ratatui::Frame<B>, app: &App) {
     // snapshot table
     let header = Row::new([Cell::from("Key"), Cell::from("Size"), Cell::from("Date")])
         .style(Style::default().fg(Color::Yellow)).bottom_margin(1);
-    let rows: Vec<Row> = app.items.iter().map(|(k,s,d)| Row::new([Cell::from(k), Cell::from(format!("{} B", s)), Cell::from(d)] )).collect();
+    let rows: Vec<Row> = app.items.iter().map(|(k,s,d)| Row::new(vec![
+        Cell::from(k.clone()),
+        Cell::from(format!("{} B", s)),
+        Cell::from(d.clone()),
+    ])).collect();
     let table = Table::new(rows).header(header)
         .block(Block::default().borders(Borders::ALL).title("Snapshots"))
         .highlight_style(Style::default().add_modifier(Modifier::BOLD).fg(Color::LightGreen))
@@ -184,4 +179,37 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         r.y + (r.height - ph) / 2,
         pw, ph,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_app_navigation_wraps() {
+        let mut app = App::new();
+        // no items: state stays at 0
+        app.next();
+        assert_eq!(app.state, 0);
+        app.prev();
+        assert_eq!(app.state, 0);
+        // two items: cycle forwards and backwards
+        app.items = vec![("x".into(),0,"".into()), ("y".into(),0,"".into())];
+        assert_eq!(app.state, 0);
+        app.next();
+        assert_eq!(app.state, 1);
+        app.next();
+        assert_eq!(app.state, 0);
+        app.prev();
+        assert_eq!(app.state, 1);
+    }
+
+    #[test]
+    fn test_help_and_confirm_toggle() {
+        let mut app = App::new();
+        assert!(!app.show_help && !app.show_confirm);
+        app.show_help = true;
+        app.show_confirm = true;
+        assert!(app.show_help && app.show_confirm);
+    }
 }

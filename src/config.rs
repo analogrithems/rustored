@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
-use std::{error::Error, fs};
+use std::{error::Error, env, fs};
 use dirs;
 use toml;
-use tokio_postgres::{NoTls};
-use elasticsearch::{Elasticsearch, http::transport::Transport, PingParts};
-use qdrant_client::prelude::QdrantClient;
+use tokio_postgres::NoTls;
+use elasticsearch::{Elasticsearch, http::transport::Transport};
+use reqwest;
 use anyhow::Result;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -46,6 +46,16 @@ impl S3Config {
         let raw: RawConfig = toml::from_str(&content)?;
         Ok(raw.s3)
     }
+
+    /// Load S3Config from environment variables
+    pub fn from_env() -> Result<Self, Box<dyn Error>> {
+        let bucket = env::var("S3_BUCKET")?;
+        let prefix = env::var("S3_PREFIX").ok();
+        let region = env::var("S3_REGION").ok();
+        let access_key_id = env::var("S3_ACCESS_KEY_ID")?;
+        let secret_access_key = env::var("S3_SECRET_ACCESS_KEY")?;
+        Ok(S3Config { bucket, prefix, region, access_key_id, secret_access_key })
+    }
 }
 
 impl DataStoreConfig {
@@ -56,12 +66,35 @@ impl DataStoreConfig {
         Ok(raw.datastore)
     }
 
+    /// Load DataStoreConfig from environment variables
+    pub fn from_env() -> Result<Self, Box<dyn Error>> {
+        let ds_type = env::var("DS_TYPE")?;
+        match ds_type.as_str() {
+            "postgres" => {
+                let conn = env::var("DS_POSTGRES_CONN")?;
+                Ok(DataStoreConfig::Postgres { connection_string: conn, tls: None })
+            }
+            "elasticsearch" => {
+                let url = env::var("DS_ES_URL")?;
+                let user = env::var("DS_ES_USER").ok();
+                let pass = env::var("DS_ES_PASS").ok();
+                Ok(DataStoreConfig::ElasticSearch { url, username: user, password: pass, tls: None })
+            }
+            "qdrant" => {
+                let url = env::var("DS_QDRANT_URL")?;
+                let api = env::var("DS_QDRANT_API").ok();
+                Ok(DataStoreConfig::Qdrant { url, api_key: api, tls: None })
+            }
+            _ => Err("Unsupported DS_TYPE".into()),
+        }
+    }
+
     /// Test connectivity to the configured datastore.
     pub async fn test_connection(&self) -> Result<(), Box<dyn Error>> {
         match self {
             DataStoreConfig::Postgres { connection_string, tls: _ } => {
                 // connect without TLS or implement TLS support later
-                let (client, connection) = tokio_postgres::connect(connection_string, NoTls).await?;
+                let (_client, connection) = tokio_postgres::connect(connection_string, NoTls).await?;
                 // spawn connection handler
                 tokio::spawn(async move {
                     if let Err(e) = connection.await {
@@ -73,14 +106,18 @@ impl DataStoreConfig {
             DataStoreConfig::ElasticSearch { url, username: _, password: _, tls: _ } => {
                 let transport = Transport::single_node(url)?;
                 let client = Elasticsearch::new(transport);
-                let res = client.ping(PingParts::None).send().await?;
-                res.error_for_status_ref()?;
+                let res = client.ping().send().await?;
+                if !res.status_code().is_success() {
+                    return Err("Elasticsearch ping failed".into());
+                }
                 Ok(())
             }
             DataStoreConfig::Qdrant { url, api_key: _, tls: _ } => {
-                let mut builder = QdrantClient::new(&url);
-                // health check if available
-                builder.health().await?;
+                let health_url = format!("{}/health", url);
+                let resp = reqwest::get(&health_url).await?;
+                if !resp.status().is_success() {
+                    return Err("Qdrant health check failed".into());
+                }
                 Ok(())
             }
         }
@@ -98,6 +135,7 @@ fn config_path() -> Result<std::path::PathBuf, Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
 
     #[tokio::test]
     async fn postgres_connection_invalid() {
@@ -115,5 +153,56 @@ mod tests {
     async fn qdrant_connection_invalid() {
         let cfg = DataStoreConfig::Qdrant { url: "http://invalid:6333".to_string(), api_key: None, tls: None };
         assert!(cfg.test_connection().await.is_err(), "Expected error for invalid Qdrant URL");
+    }
+
+    #[test]
+    fn s3_from_env() {
+        unsafe {
+            env::set_var("S3_BUCKET", "b");
+            env::set_var("S3_PREFIX", "p");
+            env::set_var("S3_REGION", "r");
+            env::set_var("S3_ACCESS_KEY_ID", "id");
+            env::set_var("S3_SECRET_ACCESS_KEY", "key");
+        }
+        let cfg = S3Config::from_env().unwrap();
+        assert_eq!(cfg.bucket, "b");
+        assert_eq!(cfg.prefix.as_deref(), Some("p"));
+        assert_eq!(cfg.region.as_deref(), Some("r"));
+    }
+
+    #[test]
+    fn ds_from_env_postgres() {
+        unsafe {
+            env::set_var("DS_TYPE", "postgres");
+            env::set_var("DS_POSTGRES_CONN", "cstr");
+        }
+        let cfg = DataStoreConfig::from_env().unwrap();
+        if let DataStoreConfig::Postgres { connection_string, .. } = cfg {
+            assert_eq!(connection_string, "cstr");
+        } else { panic!("Expected Postgres"); }
+    }
+
+    #[test]
+    fn ds_from_env_es() {
+        unsafe {
+            env::set_var("DS_TYPE", "elasticsearch");
+            env::set_var("DS_ES_URL", "u");
+        }
+        let cfg = DataStoreConfig::from_env().unwrap();
+        if let DataStoreConfig::ElasticSearch { url, .. } = cfg {
+            assert_eq!(url, "u");
+        } else { panic!("Expected ES"); }
+    }
+
+    #[test]
+    fn ds_from_env_qdrant() {
+        unsafe {
+            env::set_var("DS_TYPE", "qdrant");
+            env::set_var("DS_QDRANT_URL", "u");
+        }
+        let cfg = DataStoreConfig::from_env().unwrap();
+        if let DataStoreConfig::Qdrant { url, .. } = cfg {
+            assert_eq!(url, "u");
+        } else { panic!("Expected Qdrant"); }
     }
 }
