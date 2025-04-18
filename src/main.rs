@@ -1,12 +1,12 @@
-use std::error::Error;
 use log::info;
 use env_logger;
+use anyhow::Result;
 mod config;
 mod tui;
 mod restore;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<()> {
     // initialize logger
     env_logger::init();
     info!("Starting rustored");

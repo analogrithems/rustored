@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
-use std::{error::Error, env, fs};
+use std::{env, fs, path::PathBuf};
 use dirs;
 use toml;
 use tokio_postgres::NoTls;
 use elasticsearch::{Elasticsearch, http::transport::Transport};
 use reqwest;
-use anyhow::Result;
+use anyhow::{Result, Context, bail};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct S3Config {
@@ -40,57 +40,57 @@ struct RawConfig {
 }
 
 impl S3Config {
-    pub fn load() -> Result<Self, Box<dyn Error>> {
+    pub fn load() -> Result<Self> {
         let path = config_path()?;
-        let content = fs::read_to_string(path)?;
+        let content = fs::read_to_string(&path).context("Reading config file failed")?;
         let raw: RawConfig = toml::from_str(&content)?;
         Ok(raw.s3)
     }
 
     /// Load S3Config from environment variables
-    pub fn from_env() -> Result<Self, Box<dyn Error>> {
-        let bucket = env::var("S3_BUCKET")?;
+    pub fn from_env() -> Result<Self> {
+        let bucket = env::var("S3_BUCKET").context("Missing S3_BUCKET")?;
         let prefix = env::var("S3_PREFIX").ok();
         let region = env::var("S3_REGION").ok();
-        let access_key_id = env::var("S3_ACCESS_KEY_ID")?;
-        let secret_access_key = env::var("S3_SECRET_ACCESS_KEY")?;
+        let access_key_id = env::var("S3_ACCESS_KEY_ID").context("Missing S3_ACCESS_KEY_ID")?;
+        let secret_access_key = env::var("S3_SECRET_ACCESS_KEY").context("Missing S3_SECRET_ACCESS_KEY")?;
         Ok(S3Config { bucket, prefix, region, access_key_id, secret_access_key })
     }
 }
 
 impl DataStoreConfig {
-    pub fn load() -> Result<Self, Box<dyn Error>> {
+    pub fn load() -> Result<Self> {
         let path = config_path()?;
-        let content = fs::read_to_string(path)?;
+        let content = fs::read_to_string(&path)?;
         let raw: RawConfig = toml::from_str(&content)?;
         Ok(raw.datastore)
     }
 
     /// Load DataStoreConfig from environment variables
-    pub fn from_env() -> Result<Self, Box<dyn Error>> {
-        let ds_type = env::var("DS_TYPE")?;
+    pub fn from_env() -> Result<Self> {
+        let ds_type = env::var("DS_TYPE").context("Missing DS_TYPE")?;
         match ds_type.as_str() {
             "postgres" => {
-                let conn = env::var("DS_POSTGRES_CONN")?;
+                let conn = env::var("DS_POSTGRES_CONN").context("Missing DS_POSTGRES_CONN")?;
                 Ok(DataStoreConfig::Postgres { connection_string: conn, tls: None })
             }
             "elasticsearch" => {
-                let url = env::var("DS_ES_URL")?;
+                let url = env::var("DS_ES_URL").context("Missing DS_ES_URL")?;
                 let user = env::var("DS_ES_USER").ok();
                 let pass = env::var("DS_ES_PASS").ok();
                 Ok(DataStoreConfig::ElasticSearch { url, username: user, password: pass, tls: None })
             }
             "qdrant" => {
-                let url = env::var("DS_QDRANT_URL")?;
+                let url = env::var("DS_QDRANT_URL").context("Missing DS_QDRANT_URL")?;
                 let api = env::var("DS_QDRANT_API").ok();
                 Ok(DataStoreConfig::Qdrant { url, api_key: api, tls: None })
             }
-            _ => Err("Unsupported DS_TYPE".into()),
+            _ => bail!("Unsupported DS_TYPE"),
         }
     }
 
     /// Test connectivity to the configured datastore.
-    pub async fn test_connection(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn test_connection(&self) -> Result<()> {
         match self {
             DataStoreConfig::Postgres { connection_string, tls: _ } => {
                 // connect without TLS or implement TLS support later
@@ -108,7 +108,7 @@ impl DataStoreConfig {
                 let client = Elasticsearch::new(transport);
                 let res = client.ping().send().await?;
                 if !res.status_code().is_success() {
-                    return Err("Elasticsearch ping failed".into());
+                    bail!("Elasticsearch ping failed");
                 }
                 Ok(())
             }
@@ -116,7 +116,7 @@ impl DataStoreConfig {
                 let health_url = format!("{}/health", url);
                 let resp = reqwest::get(&health_url).await?;
                 if !resp.status().is_success() {
-                    return Err("Qdrant health check failed".into());
+                    bail!("Qdrant health check failed");
                 }
                 Ok(())
             }
@@ -124,8 +124,8 @@ impl DataStoreConfig {
     }
 }
 
-fn config_path() -> Result<std::path::PathBuf, Box<dyn Error>> {
-    let mut dir = dirs::config_dir().ok_or("Cannot find config directory")?;
+fn config_path() -> Result<PathBuf> {
+    let mut dir = dirs::config_dir().ok_or_else(|| anyhow::anyhow!("Cannot find config directory"))?;
     dir.push("rustored");
     fs::create_dir_all(&dir)?;
     dir.push("config.toml");
