@@ -1,36 +1,35 @@
-use std::env;
-use dotenvy::dotenv;
 use tokio_postgres::NoTls;
 use elasticsearch::{Elasticsearch, http::transport::Transport};
 use reqwest;
 use anyhow::{Result, Context, bail};
+use crate::cli::Opt;
 
 #[allow(dead_code)]
 #[derive(Debug)]
 // suppress unused credential fields until used
 pub struct S3Config {
-    pub bucket: String,
+    pub bucket: Option<String>,
     pub prefix: Option<String>,
     pub region: Option<String>,
     /// Whether to use path-style addressing
     pub path_style: Option<bool>,
     pub endpoint_url: Option<String>,
-    pub access_key_id: String,
-    pub secret_access_key: String,
+    pub access_key_id: Option<String>,
+    pub secret_access_key: Option<String>,
 }
 
 impl S3Config {
-    /// Load S3 configuration from environment (supports .env)
-    pub fn from_env() -> Result<Self> {
-        dotenv().ok();
-        let bucket = env::var("S3_BUCKET").context("rustored::config::S3Config::from_env: Missing S3_BUCKET")?;
-        let prefix = env::var("S3_PREFIX").ok();
-        let region = env::var("S3_REGION").ok();
-        let path_style = env::var("S3_PATH_STYLE").ok().and_then(|v| v.parse::<bool>().ok());
-        let endpoint_url = env::var("S3_ENDPOINT_URL").ok();
-        let access_key_id = env::var("S3_ACCESS_KEY_ID").context("rustored::config::S3Config::from_env: Missing S3_ACCESS_KEY_ID")?;
-        let secret_access_key = env::var("S3_SECRET_ACCESS_KEY").context("rustored::config::S3Config::from_env: Missing S3_SECRET_ACCESS_KEY")?;
-        Ok(S3Config { bucket, prefix, region, path_style, endpoint_url, access_key_id, secret_access_key })
+    /// Build S3Config directly from CLI options
+    pub fn from_opt(opt: &Opt) -> Self {
+        S3Config {
+            bucket: opt.bucket.clone(),
+            prefix: opt.prefix.clone(),
+            region: opt.region.clone(),
+            path_style: opt.path_style,
+            endpoint_url: opt.endpoint_url.clone(),
+            access_key_id: opt.access_key_id.clone(),
+            secret_access_key: opt.secret_access_key.clone(),
+        }
     }
 }
 
@@ -53,27 +52,19 @@ pub struct TlsConfig {
 }
 
 impl DataStoreConfig {
-    /// Load DataStore configuration from env (supports .env)
-    pub fn from_env() -> Result<Self> {
-        dotenv().ok();
-        let ds_type = env::var("DS_TYPE").context("rustored::config::DataStoreConfig::from_env: Missing DS_TYPE")?.trim().to_lowercase();
-        match ds_type.as_str() {
-            "postgres" => {
-                let conn = env::var("DS_POSTGRES_CONN").ok();
-                Ok(DataStoreConfig::Postgres { connection_string: conn, tls: None })
-            }
-            "elasticsearch" => {
-                let url = env::var("DS_ES_URL").ok();
-                let user = env::var("DS_ES_USER").ok();
-                let pass = env::var("DS_ES_PASS").ok();
-                Ok(DataStoreConfig::ElasticSearch { url, username: user, password: pass, tls: None })
-            }
-            "qdrant" => {
-                let url = env::var("DS_QDRANT_URL").ok();
-                let api = env::var("DS_QDRANT_API").ok();
-                Ok(DataStoreConfig::Qdrant { url, api_key: api, tls: None })
-            }
-            _ => bail!("rustored::config::DataStoreConfig::from_env: Unsupported DS_TYPE"),
+    /// Build DataStoreConfig directly from CLI options
+    pub fn from_opt(opt: &Opt) -> Self {
+        // determine datastore type or default to postgres
+        let dtype = opt.ds_type
+            .as_deref()
+            .unwrap_or("postgres")
+            .trim()
+            .to_lowercase();
+        match dtype.as_str() {
+            "postgres" => DataStoreConfig::Postgres { connection_string: opt.ds_postgres_conn.clone(), tls: None },
+            "elasticsearch" => DataStoreConfig::ElasticSearch { url: opt.ds_es_url.clone(), username: opt.ds_es_user.clone(), password: opt.ds_es_pass.clone(), tls: None },
+            "qdrant" => DataStoreConfig::Qdrant { url: opt.ds_qdrant_url.clone(), api_key: opt.ds_qdrant_api.clone(), tls: None },
+            _ => DataStoreConfig::Postgres { connection_string: opt.ds_postgres_conn.clone(), tls: None },
         }
     }
 
@@ -118,8 +109,9 @@ impl DataStoreConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
+    use crate::cli::Opt;
     use serial_test::serial;
+    use clap::Parser;
 
     #[tokio::test]
     #[serial]
@@ -143,61 +135,42 @@ mod tests {
     }
 
     #[test]
-    #[serial]
-    fn s3_from_env() {
-        unsafe {
-            env::set_var("S3_BUCKET", "org-snapshots");
-            env::set_var("S3_PREFIX", "backups");
-            env::set_var("S3_REGION", "us-east-1");
-            env::set_var("S3_ENDPOINT_URL", "https://s3.example.com");
-            // leave S3_PATH_STYLE unset for default
-            env::set_var("S3_ACCESS_KEY_ID", "id");
-            env::set_var("S3_SECRET_ACCESS_KEY", "key");
-        }
-        let cfg = S3Config::from_env().unwrap();
-        assert_eq!(cfg.bucket, "org-snapshots");
+    fn s3_from_opt() {
+        let opt = Opt::parse_from(&["rustored", "--s3-bucket", "org-snapshots", "--s3-prefix", "backups", "--s3-region", "us-east-1", "--s3-endpoint-url", "https://s3.example.com", "--s3-access-key-id", "id", "--s3-secret-access-key", "key"]);
+        let cfg = S3Config::from_opt(&opt);
+        assert_eq!(cfg.bucket.as_deref(), Some("org-snapshots"));
         assert_eq!(cfg.prefix.as_deref(), Some("backups"));
         assert_eq!(cfg.region.as_deref(), Some("us-east-1"));
-        assert_eq!(cfg.path_style, None);
+        assert_eq!(cfg.path_style, Some(true));
         assert_eq!(cfg.endpoint_url.as_deref(), Some("https://s3.example.com"));
+        assert_eq!(cfg.access_key_id.as_deref(), Some("id"));
+        assert_eq!(cfg.secret_access_key.as_deref(), Some("key"));
     }
 
     #[test]
-    #[serial]
-    fn ds_from_env_postgres() {
-        unsafe {
-            env::set_var("DS_TYPE", "postgres");
-            env::set_var("DS_POSTGRES_CONN", "cstr");
-        }
-        let cfg = DataStoreConfig::from_env().unwrap();
-        if let DataStoreConfig::Postgres { connection_string, .. } = cfg {
-            assert_eq!(connection_string.as_deref(), Some("cstr"));
-        } else { panic!("Expected Postgres"); }
+    fn ds_from_opt_postgres() {
+        let opt = Opt::parse_from(&["rustored", "--ds-type", "postgres", "--ds-postgres-conn", "connstr"]);
+        let ds = DataStoreConfig::from_opt(&opt);
+        if let DataStoreConfig::Postgres { connection_string, .. } = ds {
+            assert_eq!(connection_string.as_deref(), Some("connstr"));
+        } else { panic!() }
     }
 
     #[test]
-    #[serial]
-    fn ds_from_env_es() {
-        unsafe {
-            env::set_var("DS_TYPE", "elasticsearch");
-            env::set_var("DS_ES_URL", "u");
-        }
-        let cfg = DataStoreConfig::from_env().unwrap();
-        if let DataStoreConfig::ElasticSearch { url, .. } = cfg {
+    fn ds_from_opt_elasticsearch() {
+        let opt = Opt::parse_from(&["rustored", "--ds-type", "elasticsearch", "--ds-es-url", "u"]);
+        let ds = DataStoreConfig::from_opt(&opt);
+        if let DataStoreConfig::ElasticSearch { url, .. } = ds {
             assert_eq!(url.as_deref(), Some("u"));
-        } else { panic!("Expected ES"); }
+        } else { panic!() }
     }
 
     #[test]
-    #[serial]
-    fn ds_from_env_qdrant() {
-        unsafe {
-            env::set_var("DS_TYPE", "qdrant");
-            env::set_var("DS_QDRANT_URL", "u");
-        }
-        let cfg = DataStoreConfig::from_env().unwrap();
-        if let DataStoreConfig::Qdrant { url, .. } = cfg {
+    fn ds_from_opt_qdrant() {
+        let opt = Opt::parse_from(&["rustored", "--ds-type", "qdrant", "--ds-qdrant-url", "u"]);
+        let ds = DataStoreConfig::from_opt(&opt);
+        if let DataStoreConfig::Qdrant { url, .. } = ds {
             assert_eq!(url.as_deref(), Some("u"));
-        } else { panic!("Expected Qdrant"); }
+        } else { panic!() }
     }
 }

@@ -1,9 +1,13 @@
 use log::info;
 use env_logger;
 use anyhow::Result;
+use clap::Parser;
+mod cli;
 mod config;
 mod tui;
 mod restore;
+
+use crate::cli::Opt;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -11,15 +15,12 @@ async fn main() -> Result<()> {
     env_logger::init();
     info!("Starting rustored");
 
-    // load configurations
-    let s3_cfg = config::S3Config::from_env()?;
-    let ds_cfg = config::DataStoreConfig::from_env()?;
+    // load configurations from CLI args (with env fallbacks)
+    let opt = Opt::parse();
+    let s3_cfg = config::S3Config::from_opt(&opt);
+    let ds_cfg = config::DataStoreConfig::from_opt(&opt);
 
-    // AWS S3 client
-    let aws_conf = aws_config::load_from_env().await;
-    let s3_client = aws_sdk_s3::Client::new(&aws_conf);
-
-    // run TUI application
-    tui::run_app(s3_client, s3_cfg, ds_cfg).await?;
+    // run TUI application, including splash screen
+    tui::run_app(s3_cfg, ds_cfg, opt.splash_image.clone()).await?;
     Ok(())
 }

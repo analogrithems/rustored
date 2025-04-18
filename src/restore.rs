@@ -4,7 +4,7 @@ use tokio::io::AsyncWriteExt;
 use aws_sdk_s3::Client;
 use futures_util::stream::TryStreamExt;
 use crate::config::DataStoreConfig;
-use anyhow::Result;
+use anyhow::{Result, Context};
 
 mod postgres;
 mod elasticsearch;
@@ -48,13 +48,16 @@ pub async fn restore_to_datastore(
 ) -> Result<()> {
     match ds_cfg {
         DataStoreConfig::Postgres { connection_string, .. } => {
-            postgres::restore_postgres(file_path, connection_string).await
+            let conn_str = connection_string.as_ref().context("rustored::restore::restore_to_datastore: Missing DS_POSTGRES_CONN")?;
+            postgres::restore_postgres(file_path, conn_str).await
         }
         DataStoreConfig::ElasticSearch { url, username, password, .. } => {
-            elasticsearch::restore_elasticsearch(file_path, url, username.clone(), password.clone()).await
+            let url_str = url.as_ref().context("rustored::restore::restore_to_datastore: Missing DS_ES_URL")?;
+            elasticsearch::restore_elasticsearch(file_path, url_str, username.clone(), password.clone()).await
         }
         DataStoreConfig::Qdrant { url, api_key, .. } => {
-            qdrant::restore_qdrant(file_path, url, api_key.clone()).await
+            let url_str = url.as_ref().context("rustored::restore::restore_to_datastore: Missing DS_QDRANT_URL")?;
+            qdrant::restore_qdrant(file_path, url_str, api_key.clone()).await
         }
     }
 }

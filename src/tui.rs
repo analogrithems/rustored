@@ -1,11 +1,13 @@
-use std::{io, time::{Duration, Instant}};
+use std::{io, fs, thread, time::{Duration, Instant}};
 use aws_sdk_s3::Client;
+use aws_config;
 use crossterm::{event::{self, DisableMouseCapture, EnableMouseCapture, Event as CEvent, KeyCode}, execute, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}};
 use ratatui::{backend::CrosstermBackend, Terminal, widgets::{Block, Borders, Table, Row, Cell, Paragraph, Clear, Gauge}, layout::{Constraint, Direction, Layout, Rect}, style::{Color, Modifier, Style}};
 use crate::config::{S3Config, DataStoreConfig};
 use dirs;
 use crate::restore::{download_snapshot, restore_to_datastore};
-use anyhow::Result;
+use anyhow::{Result, Context};
+use ratatui_splash_screen::{SplashConfig, SplashScreen};
 
 struct App {
     items: Vec<(String, u64, String)>, // (key, size, date)
@@ -26,11 +28,39 @@ impl App {
     fn prev(&mut self) { if !self.items.is_empty() { if self.state == 0 { self.state = self.items.len() - 1 } else { self.state -= 1 } }}
 }
 
-pub async fn run_app(s3_client: Client, s3_cfg: S3Config, ds_cfg: DataStoreConfig) -> Result<()> {
+pub async fn run_app(s3_cfg: S3Config, ds_cfg: DataStoreConfig, splash_image: String) -> Result<()> {
+    // splash screen
+    // read image bytes
+    let img = fs::read(&splash_image).context("tui::run_app: Failed to read splash image")?;
+    let splash_cfg = SplashConfig { image_data: &img, sha256sum: None, render_steps: 12, use_colors: true };
+    // initialize terminal for splash
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+    terminal.clear()?;
+    let mut splash = SplashScreen::new(splash_cfg)?;
+    while !splash.is_rendered() {
+        terminal.draw(|f| f.render_widget(&mut splash, f.size()))?;
+        thread::sleep(Duration::from_millis(100));
+    }
+    thread::sleep(Duration::from_secs(1));
+    terminal.clear()?;
+    // drop splash terminal state; real TUI will reinitialize later
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+
+    // validate and build S3 client
+    let bucket = s3_cfg.bucket.as_ref().context("tui::run_app: Missing S3 bucket")?;
+    let _ = s3_cfg.access_key_id.as_ref().context("tui::run_app: Missing S3 access key")?;
+    let _ = s3_cfg.secret_access_key.as_ref().context("tui::run_app: Missing S3 secret key")?;
+    let aws_conf = aws_config::load_from_env().await;
+    let s3_client = Client::new(&aws_conf);
     // fetch snapshot list
-    let mut resp = s3_client.list_objects_v2().bucket(&s3_cfg.bucket);
-    if !s3_cfg.prefix.is_empty() {
-        resp = resp.prefix(&s3_cfg.prefix);
+    let mut resp = s3_client.list_objects_v2().bucket(bucket);
+    if let Some(prefix) = &s3_cfg.prefix {
+        resp = resp.prefix(prefix);
     }
     let out = resp.send().await?;
     let mut app = App::new();
@@ -83,7 +113,7 @@ pub async fn run_app(s3_client: Client, s3_cfg: S3Config, ds_cfg: DataStoreConfi
         let (key, _size, _date) = &app.items[app.state];
         let dest = dirs::download_dir().unwrap_or(dirs::home_dir().unwrap()).join(key);
         app.show_download = true;
-        download_snapshot(&s3_client, &s3_cfg.bucket, key, &dest).await?;
+        download_snapshot(&s3_client, bucket, key, &dest).await?;
         app.show_download = false;
         // setup restore modal
         let cmd = format!("rustored restore --source {:?} --datastore-config", dest);
