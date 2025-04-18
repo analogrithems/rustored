@@ -5,6 +5,7 @@ use ratatui::{backend::CrosstermBackend, Terminal, widgets::{Block, Borders, Tab
 use crate::config::{S3Config, DataStoreConfig};
 use dirs;
 use crate::restore::{download_snapshot, restore_to_datastore};
+use anyhow::Result;
 
 enum Event<I> { Input(I), Tick }
 
@@ -27,7 +28,7 @@ impl App {
     fn prev(&mut self) { if !self.items.is_empty() { if self.state == 0 { self.state = self.items.len() - 1 } else { self.state -= 1 } }}
 }
 
-pub async fn run_app(s3_client: Client, s3_cfg: S3Config, ds_cfg: DataStoreConfig) -> Result<(), Box<dyn Error>> {
+pub async fn run_app(s3_client: Client, s3_cfg: S3Config, ds_cfg: DataStoreConfig) -> Result<()> {
     // fetch snapshot list
     let mut resp = s3_client.list_objects_v2().bucket(&s3_cfg.bucket);
     if let Some(prefix) = &s3_cfg.prefix { resp = resp.prefix(prefix); }
