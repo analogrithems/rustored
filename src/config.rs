@@ -10,8 +10,11 @@ use anyhow::{Result, Context, bail};
 // suppress unused credential fields until used
 pub struct S3Config {
     pub bucket: String,
-    pub prefix: Option<String>,
-    pub region: Option<String>,
+    pub prefix: String,
+    pub region: String,
+    /// Whether to use path-style addressing
+    pub path_style: Option<bool>,
+    pub endpoint_url: Option<String>,
     pub access_key_id: String,
     pub secret_access_key: String,
 }
@@ -21,11 +24,13 @@ impl S3Config {
     pub fn from_env() -> Result<Self> {
         dotenv().ok();
         let bucket = env::var("S3_BUCKET").context("Missing S3_BUCKET")?;
-        let prefix = env::var("S3_PREFIX").ok();
-        let region = env::var("S3_REGION").ok();
+        let prefix = env::var("S3_PREFIX").unwrap_or_default();
+        let region = env::var("S3_REGION").unwrap_or_default();
+        let path_style = env::var("S3_PATH_STYLE").ok().and_then(|v| v.parse::<bool>().ok());
+        let endpoint_url = env::var("S3_ENDPOINT_URL").ok();
         let access_key_id = env::var("S3_ACCESS_KEY_ID").context("Missing S3_ACCESS_KEY_ID")?;
         let secret_access_key = env::var("S3_SECRET_ACCESS_KEY").context("Missing S3_SECRET_ACCESS_KEY")?;
-        Ok(S3Config { bucket, prefix, region, access_key_id, secret_access_key })
+        Ok(S3Config { bucket, prefix, region, path_style, endpoint_url, access_key_id, secret_access_key })
     }
 }
 
@@ -138,16 +143,20 @@ mod tests {
     #[serial]
     fn s3_from_env() {
         unsafe {
-            env::set_var("S3_BUCKET", "b");
-            env::set_var("S3_PREFIX", "p");
-            env::set_var("S3_REGION", "r");
+            env::set_var("S3_BUCKET", "org-snapshots");
+            env::set_var("S3_PREFIX", "backups");
+            env::set_var("S3_REGION", "us-east-1");
+            env::set_var("S3_ENDPOINT_URL", "https://s3.example.com");
+            // leave S3_PATH_STYLE unset for default
             env::set_var("S3_ACCESS_KEY_ID", "id");
             env::set_var("S3_SECRET_ACCESS_KEY", "key");
         }
         let cfg = S3Config::from_env().unwrap();
-        assert_eq!(cfg.bucket, "b");
-        assert_eq!(cfg.prefix.as_deref(), Some("p"));
-        assert_eq!(cfg.region.as_deref(), Some("r"));
+        assert_eq!(cfg.bucket, "org-snapshots");
+        assert_eq!(cfg.prefix, "backups");
+        assert_eq!(cfg.region, "us-east-1");
+        assert_eq!(cfg.path_style, None);
+        assert_eq!(cfg.endpoint_url.as_deref(), Some("https://s3.example.com"));
     }
 
     #[test]
@@ -155,11 +164,11 @@ mod tests {
     fn ds_from_env_postgres() {
         unsafe {
             env::set_var("DS_TYPE", "postgres");
-            env::set_var("DS_POSTGRES_CONN", "cstr");
+            env::set_var("DS_POSTGRES_CONN", "postgresql://username:password@localhost:5432");
         }
         let cfg = DataStoreConfig::from_env().unwrap();
         if let DataStoreConfig::Postgres { connection_string, .. } = cfg {
-            assert_eq!(connection_string, "cstr");
+            assert_eq!(connection_string, "postgresql://username:password@localhost:5432");
         } else { panic!("Expected Postgres"); }
     }
 
@@ -168,11 +177,11 @@ mod tests {
     fn ds_from_env_es() {
         unsafe {
             env::set_var("DS_TYPE", "elasticsearch");
-            env::set_var("DS_ES_URL", "u");
+            env::set_var("DS_ES_URL", "http://es.example.com");
         }
         let cfg = DataStoreConfig::from_env().unwrap();
         if let DataStoreConfig::ElasticSearch { url, .. } = cfg {
-            assert_eq!(url, "u");
+            assert_eq!(url, "http://es.example.com");
         } else { panic!("Expected ES"); }
     }
 
@@ -181,11 +190,11 @@ mod tests {
     fn ds_from_env_qdrant() {
         unsafe {
             env::set_var("DS_TYPE", "qdrant");
-            env::set_var("DS_QDRANT_URL", "u");
+            env::set_var("DS_QDRANT_URL", "http://qdrant.example.com");
         }
         let cfg = DataStoreConfig::from_env().unwrap();
         if let DataStoreConfig::Qdrant { url, .. } = cfg {
-            assert_eq!(url, "u");
+            assert_eq!(url, "http://qdrant.example.com");
         } else { panic!("Expected Qdrant"); }
     }
 }

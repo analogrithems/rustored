@@ -48,8 +48,10 @@ impl Opt {
     pub fn into_configs(self) -> Result<(S3Config, DataStoreConfig), Box<dyn Error>> {
         let s3 = S3Config {
             bucket: self.bucket,
-            prefix: self.prefix,
-            region: self.region,
+            prefix: self.prefix.unwrap_or_default(),
+            region: self.region.unwrap_or_default(),
+            path_style: None,
+            endpoint_url: None,
             access_key_id: self.access_key_id,
             secret_access_key: self.secret_access_key,
         };

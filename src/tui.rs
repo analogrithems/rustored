@@ -29,7 +29,9 @@ impl App {
 pub async fn run_app(s3_client: Client, s3_cfg: S3Config, ds_cfg: DataStoreConfig) -> Result<()> {
     // fetch snapshot list
     let mut resp = s3_client.list_objects_v2().bucket(&s3_cfg.bucket);
-    if let Some(prefix) = &s3_cfg.prefix { resp = resp.prefix(prefix); }
+    if !s3_cfg.prefix.is_empty() {
+        resp = resp.prefix(&s3_cfg.prefix);
+    }
     let out = resp.send().await?;
     let mut app = App::new();
     if let Some(contents) = out.contents { for obj in contents {
