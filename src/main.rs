@@ -12,8 +12,8 @@ async fn main() -> Result<()> {
     info!("Starting rustored");
 
     // load configurations
-    let s3_cfg = config::S3Config::load()?;
-    let ds_cfg = config::DataStoreConfig::load()?;
+    let s3_cfg = config::S3Config::from_env()?;
+    let ds_cfg = config::DataStoreConfig::from_env()?;
 
     // AWS S3 client
     let aws_conf = aws_config::load_from_env().await;

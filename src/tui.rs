@@ -1,4 +1,4 @@
-use std::{error::Error, io, time::{Duration, Instant}};
+use std::{io, time::{Duration, Instant}};
 use aws_sdk_s3::Client;
 use crossterm::{event::{self, DisableMouseCapture, EnableMouseCapture, Event as CEvent, KeyCode}, execute, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}};
 use ratatui::{backend::CrosstermBackend, Terminal, widgets::{Block, Borders, Table, Row, Cell, Paragraph, Clear, Gauge}, layout::{Constraint, Direction, Layout, Rect}, style::{Color, Modifier, Style}};
@@ -6,8 +6,6 @@ use crate::config::{S3Config, DataStoreConfig};
 use dirs;
 use crate::restore::{download_snapshot, restore_to_datastore};
 use anyhow::Result;
-
-enum Event<I> { Input(I), Tick }
 
 struct App {
     items: Vec<(String, u64, String)>, // (key, size, date)
@@ -101,7 +99,8 @@ pub async fn run_app(s3_client: Client, s3_cfg: S3Config, ds_cfg: DataStoreConfi
             }
             if rt.is_finished() { break; }
         }
-        rt.await?;
+        // ignore result of restore task
+        let _ = rt.await?;
         app.show_restore = false;
     }
     // restore terminal
