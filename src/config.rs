@@ -42,7 +42,7 @@ struct RawConfig {
 impl S3Config {
     pub fn load() -> Result<Self> {
         let path = config_path()?;
-        let content = fs::read_to_string(&path).context("Reading config file failed")?;
+        let content = fs::read_to_string(&path).context(format!("Reading config file failed: {}", path.display()))?;
         let raw: RawConfig = toml::from_str(&content)?;
         Ok(raw.s3)
     }

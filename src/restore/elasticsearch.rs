@@ -2,7 +2,7 @@ use std::path::Path;
 use anyhow::{Result, bail};
 
 /// Restore snapshot file to Elasticsearch using Bulk API or snapshot API
-#![allow(unused_variables)]
+#[allow(unused_variables)]
 pub async fn restore_elasticsearch(
     file_path: &Path,
     url: &str,
