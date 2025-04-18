@@ -1,8 +1,11 @@
 use std::{error::Error, io, time::{Duration, Instant}};
 use aws_sdk_s3::Client;
 use crossterm::{event::{self, DisableMouseCapture, EnableMouseCapture, Event as CEvent, KeyCode}, execute, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}};
-use ratatui::{backend::CrosstermBackend, Terminal, widgets::{Block, Borders, Table, Row, Cell, Paragraph, Clear}, layout::{Constraint, Direction, Layout, Rect}, style::{Color, Modifier, Style}};
+use ratatui::{backend::CrosstermBackend, Terminal, widgets::{Block, Borders, Table, Row, Cell, Paragraph, Clear, Gauge}, layout::{Constraint, Direction, Layout, Rect}, style::{Color, Modifier, Style}};
 use crate::config::{S3Config, DataStoreConfig};
+use log::info;
+use crate::restore;
+use dirs;
 
 enum Event<I> { Input(I), Tick }
 
@@ -11,10 +14,16 @@ struct App {
     state: usize,
     show_help: bool,
     show_confirm: bool,
+    show_download: bool,
+    downloaded: u64,
+    total: u64,
+    show_restore: bool,
+    show_debug: bool,
+    raw_cmd: String,
 }
 
 impl App {
-    fn new() -> Self { App { items: Vec::new(), state: 0, show_help: false, show_confirm: false } }
+    fn new() -> Self { App { items: Vec::new(), state: 0, show_help: false, show_confirm: false, show_download: false, downloaded: 0, total: 0, show_restore: false, show_debug: false, raw_cmd: String::new() } }
     fn next(&mut self) { if !self.items.is_empty() { self.state = (self.state + 1) % self.items.len(); }}
     fn prev(&mut self) { if !self.items.is_empty() { if self.state == 0 { self.state = self.items.len() - 1 } else { self.state -= 1 } }}
 }
@@ -44,7 +53,8 @@ pub async fn run_app(s3_client: Client, s3_cfg: S3Config, ds_cfg: DataStoreConfi
     // event loop
     let tick_rate = Duration::from_millis(200);
     let mut last_tick = Instant::now();
-    loop {
+    let mut confirmed = false;
+    'main: loop {
         terminal.draw(|f| ui(f, &app))?;
         let timeout = tick_rate.checked_sub(last_tick.elapsed()).unwrap_or_default();
         if event::poll(timeout)? {
@@ -54,12 +64,53 @@ pub async fn run_app(s3_client: Client, s3_cfg: S3Config, ds_cfg: DataStoreConfi
                     KeyCode::Char('h') => app.show_help = !app.show_help,
                     KeyCode::Down => app.next(),
                     KeyCode::Up => app.prev(),
-                    KeyCode::Enter => { if !app.items.is_empty() { app.show_confirm = true; }}
+                    KeyCode::Enter => {
+                        if app.show_confirm {
+                            confirmed = true;
+                            break 'main;
+                        } else if !app.items.is_empty() {
+                            app.show_confirm = true;
+                        }
+                    }
                     _ => {}
                 }
             }
         }
         if last_tick.elapsed() >= tick_rate { last_tick = Instant::now(); }
+    }
+    // on confirm: download loop inside TUI
+    if confirmed {
+        let (key, _size, _date) = &app.items[app.state];
+        let dest = dirs::download_dir().unwrap_or(dirs::home_dir().unwrap()).join(key);
+        let head = s3_client.head_object().bucket(&s3_cfg.bucket).key(key).send().await?;
+        app.total = head.content_length as u64;
+        app.show_download = true;
+        let mut stream = s3_client.get_object().bucket(&s3_cfg.bucket).key(key).send().await?.body;
+        let mut file = tokio::fs::File::create(&dest).await?;
+        while let Some(bytes) = stream.recv().await? {
+            file.write_all(&bytes).await?;
+            app.downloaded += bytes.len() as u64;
+            terminal.draw(|f| ui(f, &app))?;
+        }
+        app.show_download = false;
+        // setup restore modal
+        let cmd = format!("rustored restore --source {:?} --datastore-config", dest);
+        app.raw_cmd = cmd;
+        app.show_restore = true;
+        // spawn restore task
+        let rt = tokio::spawn(async move { restore::restore_to_datastore(&dest, &ds_cfg).await });
+        // modal event loop
+        loop {
+            terminal.draw(|f| ui(f, &app))?;
+            if event::poll(Duration::from_millis(200))? {
+                if let CEvent::Key(k) = event::read()? {
+                    if k.code == KeyCode::Char('d') { app.show_debug = !app.show_debug; }
+                }
+            }
+            if rt.is_finished() { break; }
+        }
+        rt.await?;
+        app.show_restore = false;
     }
     // restore terminal
     disable_raw_mode()?;
@@ -101,6 +152,27 @@ fn ui<B: ratatui::backend::Backend>(f: &mut ratatui::Frame<B>, app: &App) {
         let popup = centered_rect(50,30,area);
         f.render_widget(Clear,popup);
         f.render_widget(confirm,popup);
+    }
+    // download gauge
+    if app.show_download {
+        let gauge = Gauge::default()
+            .block(Block::default().borders(Borders::ALL).title("Downloading"))
+            .gauge_style(Style::default().fg(Color::Cyan))
+            .ratio(app.downloaded as f64 / app.total as f64)
+            .label(format!("{}/{} B", app.downloaded, app.total));
+        let popup = centered_rect(60, 20, area);
+        f.render_widget(Clear, popup);
+        f.render_widget(gauge, popup);
+    }
+    // restore modal
+    if app.show_restore {
+        let mut lines = vec!["Restoring...".to_string(), "Press 'd' for debug".to_string()];
+        if app.show_debug { lines.push(app.raw_cmd.clone()); }
+        let blk = Block::default().borders(Borders::ALL).title("Restore Progress");
+        let p = Paragraph::new(lines.join("\n")).block(blk);
+        let popup = centered_rect(60, 20, f.size());
+        f.render_widget(Clear, popup);
+        f.render_widget(p, popup);
     }
 }
 

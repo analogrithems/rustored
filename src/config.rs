@@ -2,6 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::{error::Error, fs};
 use dirs;
 use toml;
+use tokio_postgres::{NoTls};
+use elasticsearch::{Elasticsearch, http::transport::Transport, PingParts};
+use qdrant_client::prelude::QdrantClient;
+use anyhow::Result;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct S3Config {
@@ -51,6 +55,36 @@ impl DataStoreConfig {
         let raw: RawConfig = toml::from_str(&content)?;
         Ok(raw.datastore)
     }
+
+    /// Test connectivity to the configured datastore.
+    pub async fn test_connection(&self) -> Result<(), Box<dyn Error>> {
+        match self {
+            DataStoreConfig::Postgres { connection_string, tls: _ } => {
+                // connect without TLS or implement TLS support later
+                let (client, connection) = tokio_postgres::connect(connection_string, NoTls).await?;
+                // spawn connection handler
+                tokio::spawn(async move {
+                    if let Err(e) = connection.await {
+                        eprintln!("Postgres connection error: {}", e);
+                    }
+                });
+                Ok(())
+            }
+            DataStoreConfig::ElasticSearch { url, username: _, password: _, tls: _ } => {
+                let transport = Transport::single_node(url)?;
+                let client = Elasticsearch::new(transport);
+                let res = client.ping(PingParts::None).send().await?;
+                res.error_for_status_ref()?;
+                Ok(())
+            }
+            DataStoreConfig::Qdrant { url, api_key: _, tls: _ } => {
+                let mut builder = QdrantClient::new(&url);
+                // health check if available
+                builder.health().await?;
+                Ok(())
+            }
+        }
+    }
 }
 
 fn config_path() -> Result<std::path::PathBuf, Box<dyn Error>> {
@@ -59,4 +93,27 @@ fn config_path() -> Result<std::path::PathBuf, Box<dyn Error>> {
     fs::create_dir_all(&dir)?;
     dir.push("config.toml");
     Ok(dir)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn postgres_connection_invalid() {
+        let cfg = DataStoreConfig::Postgres { connection_string: "postgres://invalid".to_string(), tls: None };
+        assert!(cfg.test_connection().await.is_err(), "Expected error for invalid Postgres URL");
+    }
+
+    #[tokio::test]
+    async fn elasticsearch_connection_invalid() {
+        let cfg = DataStoreConfig::ElasticSearch { url: "http://invalid:9200".to_string(), username: None, password: None, tls: None };
+        assert!(cfg.test_connection().await.is_err(), "Expected error for invalid ElasticSearch URL");
+    }
+
+    #[tokio::test]
+    async fn qdrant_connection_invalid() {
+        let cfg = DataStoreConfig::Qdrant { url: "http://invalid:6333".to_string(), api_key: None, tls: None };
+        assert!(cfg.test_connection().await.is_err(), "Expected error for invalid Qdrant URL");
+    }
 }
