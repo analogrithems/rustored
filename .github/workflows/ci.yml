@@ -1,36 +1,66 @@
+# CI Workflow for Rustored Project
+# This workflow runs tests and quality checks on every push to main and pull request
 name: CI
 
+# Define when this workflow will run
 on:
+  # Run on pushes to the main branch
   push:
     branches: [ main ]
+  # Run on pull requests targeting the main branch
   pull_request:
     branches: [ main ]
 
+# Define the jobs that will run as part of this workflow
 jobs:
+  # The 'test' job runs all tests and quality checks
   test:
+    # Use the latest Ubuntu runner provided by GitHub Actions
     runs-on: ubuntu-latest
+    # Define the sequence of steps for this job
     steps:
+      # Step 1: Check out the repository code
+      # This action checks out the repository under $GITHUB_WORKSPACE so the workflow can access it
       - uses: actions/checkout@v3
 
+      # Step 2: Install the Rust toolchain
+      # This action installs the stable Rust toolchain with additional components
+      # for code quality checks (clippy for linting, rustfmt for formatting)
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
 
+      # Step 3: Set up Rust caching
+      # This specialized action caches Rust dependencies and build artifacts
+      # to significantly speed up subsequent builds
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
         with:
-          # Cache the entire cargo registry, target directory, and .cargo directory
+          # Continue caching even if the build fails to maintain cache consistency
           cache-on-failure: true
-          # Prefix the cache key to avoid conflicts
+          # Use a project-specific prefix for the cache key to avoid conflicts with other projects
           prefix-key: "rustored-v1"
+      # Step 4: Run all tests
+      # Execute cargo test with the following options:
+      # - --nocapture: Show println! output from tests in real-time
+      # - 2>&1: Redirect stderr to stdout to capture all output
+      # - | tee test-results.txt: Display output in real-time while also saving to a file
+      # continue-on-error ensures the workflow continues even if tests fail
+      # so we can upload the test results as an artifact
       - name: Run tests
-        run: cargo test -- --nocapture > test-results.txt 2>&1
+        run: cargo test -- --nocapture 2>&1 | tee test-results.txt
         continue-on-error: true
 
+      # Step 5: Store test results as an artifact
+      # This makes the test output available for download after the workflow completes
+      # which is useful for debugging test failures or reviewing test output later
       - name: Store test results
         uses: actions/upload-artifact@v4
         with:
+          # Name of the artifact that will be created
           name: test-results
+          # Path to the file that will be uploaded
           path: test-results.txt
+          # Number of days to keep the artifact before it expires
           retention-days: 30
