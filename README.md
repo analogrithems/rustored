@@ -15,6 +15,39 @@ Rustored is a terminal-based CLI and TUI application for downloading and restori
 
 ## Installation
 
+### Download a Binary Release
+
+Prebuilt binaries for Linux, macOS, and Windows are available on the [GitHub Releases page](https://github.com/${{ github.repository_owner }}/rustored/releases). Download the latest release for your platform and make it executable if needed:
+
+```bash
+# Example for Linux:
+wget https://github.com/${{ github.repository_owner }}/rustored/releases/latest/download/rustored
+chmod +x rustored
+./rustored --help
+```
+
+### Run with Docker
+
+You can run rustored directly from a secure, minimal container image:
+
+```bash
+docker run --rm -it \
+  ghcr.io/${{ github.repository_owner }}/rustored:latest \
+  --s3-bucket <BUCKET> --s3-access-key-id <KEY> --s3-secret-access-key <SECRET> \
+  --ds-type <postgres|elasticsearch|qdrant> [datastore options...]
+```
+
+Or launch the TUI interactively:
+
+```bash
+docker run --rm -it \
+  --env TERM=xterm-256color \
+  --env <YOUR_ENV_VARS> \
+  ghcr.io/${{ github.repository_owner }}/rustored:latest
+```
+
+### Build from Source
+
 ```bash
 cargo install --path .
 ```
