@@ -2,7 +2,8 @@ use ratatui::{
     backend::Backend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Tabs},
+    text::{Span, Line},
+    widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame,
 };
 
@@ -28,22 +29,24 @@ pub fn render_restore_target<B: Backend>(f: &mut Frame, app: &RustoredApp, area:
         .borders(Borders::ALL);
     f.render_widget(restore_target_block, area);
 
-    // Create layout for restore target and connection fields
-    let restore_chunks = Layout::default()
+    // Create layout for restore target list and help text
+    // As per TDD rule #10, navigation help text should be at the bottom
+    let inner_area = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
         .constraints(
             [
-                Constraint::Length(3), // Restore Target Tabs
-                Constraint::Min(4),    // Connection Fields
+                Constraint::Min(3),    // Restore Target List
+                Constraint::Length(1), // Help text at the bottom
             ]
             .as_ref(),
         )
         .split(area);
 
-    // Restore Target Tabs with numeric prefixes as per TDD rule #11
-    let restore_targets = vec!["1. PostgreSQL", "2. Elasticsearch", "3. Qdrant"];
-    debug!("Created restore targets with numeric prefixes: {:?}", restore_targets);
+    // Create list items for restore targets with numeric prefixes as per TDD rule #11
+    // Each target will be on its own line as requested
+    let restore_target_names = vec!["1. PostgreSQL", "2. Elasticsearch", "3. Qdrant"];
+    debug!("Created restore targets with numeric prefixes: {:?}", restore_target_names);
     
     let restore_target_index = match app.restore_target {
         RestoreTarget::Postgres => 0,
@@ -52,25 +55,42 @@ pub fn render_restore_target<B: Backend>(f: &mut Frame, app: &RustoredApp, area:
     };
     debug!("Current restore target index: {}", restore_target_index);
 
-    let restore_target_style = if app.focus == FocusField::RestoreTarget {
-        Style::default().fg(Color::Yellow)
-    } else {
-        Style::default()
-    };
-
-    let restore_target_tabs = Tabs::new(restore_targets)
-        .block(Block::default().title(" Restore Target "))
-        .select(restore_target_index)
-        .style(Style::default())
-        .highlight_style(
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::BOLD),
-        )
-        .style(restore_target_style);
+    // Create list items with appropriate styling
+    let items: Vec<ListItem> = restore_target_names
+        .iter()
+        .enumerate()
+        .map(|(i, &name)| {
+            let style = if i == restore_target_index {
+                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+            } else if app.focus == FocusField::RestoreTarget {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default()
+            };
+            
+            ListItem::new(Line::from(Span::styled(name, style)))
+        })
+        .collect();
     
-    debug!("Rendering restore target tabs with selected index: {}", restore_target_index);
-    f.render_widget(restore_target_tabs, restore_chunks[0]);
+    // Create the list widget without an additional border
+    let restore_target_list = List::new(items);
+    
+    debug!("Rendering restore target list with selected index: {}", restore_target_index);
+    f.render_widget(restore_target_list, inner_area[0]);
+    
+    // Add help text at the bottom of the restore target section as per TDD rule #10
+    let help_text = Line::from(vec![
+        Span::styled("Press ", Style::default()),
+        Span::styled("1-3", Style::default().fg(Color::Yellow)),
+        Span::styled(" to select restore target type", Style::default()),
+    ]);
+    
+    let help_paragraph = Paragraph::new(help_text)
+        .style(Style::default())
+        .alignment(ratatui::layout::Alignment::Left);
+    
+    debug!("Rendering help text at the bottom of restore target section (TDD rule #10)");
+    f.render_widget(help_paragraph, inner_area[1]);
     
     debug!("Finished rendering restore target selection");
 }

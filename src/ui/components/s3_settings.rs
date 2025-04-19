@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Span, Line},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Table, Row, Cell},
     Frame,
 };
 
@@ -22,163 +22,122 @@ pub fn render_s3_settings<B: Backend>(f: &mut Frame, app: &RustoredApp, area: Re
         .borders(Borders::ALL);
     f.render_widget(s3_settings_block, area);
 
-    // Create layout for S3 settings fields
+    // Create a layout for the settings fields
     // As per TDD rule #10, navigation help text should be at the bottom
     let s3_settings_chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
         .constraints(
             [
-                Constraint::Length(1), // Bucket
-                Constraint::Length(1), // Region
-                Constraint::Length(1), // Prefix
-                Constraint::Length(1), // Endpoint URL
-                Constraint::Length(1), // Access Key ID
-                Constraint::Length(1), // Secret Access Key
-                Constraint::Length(1), // Path Style
-                Constraint::Min(1),    // Flexible space
+                Constraint::Min(1),    // Main content area (table)
                 Constraint::Length(1), // Help legend (at the bottom as per TDD rule #10)
             ]
             .as_ref(),
         )
         .split(area);
     
-    debug!("Created S3 settings layout with navigation help at the bottom (TDD rule #10)");
+    debug!("Created S3 settings layout with 2 sections: content and help text");
 
-    // Bucket
-    let bucket_style = if app.focus == FocusField::Bucket {
-        if app.input_mode == InputMode::Editing {
-            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Yellow)
-        }
+    // Prepare the table rows for S3 settings
+    let mut rows = Vec::new();
+    
+    // Define the fields to display
+    let mut fields = Vec::new();
+    
+    // Bucket field
+    let bucket_value = if app.focus == FocusField::Bucket && app.input_mode == InputMode::Editing {
+        app.input_buffer.clone()
     } else {
-        Style::default()
+        app.s3_config.bucket.clone()
     };
-
-    let bucket_text = if app.focus == FocusField::Bucket && app.input_mode == InputMode::Editing {
-        format!("Bucket: {}", app.input_buffer)
+    fields.push(("Bucket", bucket_value, FocusField::Bucket));
+    
+    // Region field
+    let region_value = if app.focus == FocusField::Region && app.input_mode == InputMode::Editing {
+        app.input_buffer.clone()
     } else {
-        format!("Bucket: {}", app.s3_config.bucket)
+        app.s3_config.region.clone()
     };
-
-    let bucket = Paragraph::new(bucket_text)
-        .style(bucket_style);
-    f.render_widget(bucket, s3_settings_chunks[0]);
-
-    // Region
-    let region_style = if app.focus == FocusField::Region {
-        if app.input_mode == InputMode::Editing {
-            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Yellow)
-        }
+    fields.push(("Region", region_value, FocusField::Region));
+    
+    // Prefix field
+    let prefix_value = if app.focus == FocusField::Prefix && app.input_mode == InputMode::Editing {
+        app.input_buffer.clone()
     } else {
-        Style::default()
+        app.s3_config.prefix.clone()
     };
-
-    let region_text = if app.focus == FocusField::Region && app.input_mode == InputMode::Editing {
-        format!("Region: {}", app.input_buffer)
+    fields.push(("Prefix", prefix_value, FocusField::Prefix));
+    
+    // Endpoint URL field
+    let endpoint_value = if app.focus == FocusField::EndpointUrl && app.input_mode == InputMode::Editing {
+        app.input_buffer.clone()
     } else {
-        format!("Region: {}", app.s3_config.region)
+        app.s3_config.endpoint_url.clone()
     };
-
-    let region = Paragraph::new(region_text)
-        .style(region_style);
-    f.render_widget(region, s3_settings_chunks[1]);
-
-    // Prefix
-    let prefix_style = if app.focus == FocusField::Prefix {
-        if app.input_mode == InputMode::Editing {
-            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Yellow)
-        }
+    fields.push(("Endpoint URL", endpoint_value, FocusField::EndpointUrl));
+    
+    // Access Key ID field
+    let access_key_value = if app.focus == FocusField::AccessKeyId && app.input_mode == InputMode::Editing {
+        app.input_buffer.clone()
     } else {
-        Style::default()
+        app.s3_config.access_key_id.clone()
     };
-
-    let prefix_text = if app.focus == FocusField::Prefix && app.input_mode == InputMode::Editing {
-        format!("Prefix: {}", app.input_buffer)
-    } else {
-        format!("Prefix: {}", app.s3_config.prefix)
-    };
-
-    let prefix = Paragraph::new(prefix_text)
-        .style(prefix_style);
-    f.render_widget(prefix, s3_settings_chunks[2]);
-
-    // Endpoint URL
-    let endpoint_url_style = if app.focus == FocusField::EndpointUrl {
-        if app.input_mode == InputMode::Editing {
-            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Yellow)
-        }
-    } else {
-        Style::default()
-    };
-
-    let endpoint_url_text = if app.focus == FocusField::EndpointUrl && app.input_mode == InputMode::Editing {
-        format!("Endpoint URL: {}", app.input_buffer)
-    } else {
-        format!("Endpoint URL: {}", app.s3_config.endpoint_url)
-    };
-
-    let endpoint_url = Paragraph::new(endpoint_url_text)
-        .style(endpoint_url_style);
-    f.render_widget(endpoint_url, s3_settings_chunks[3]);
-
-    // Access Key ID
-    let access_key_style = if app.focus == FocusField::AccessKeyId {
-        if app.input_mode == InputMode::Editing {
-            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Yellow)
-        }
-    } else {
-        Style::default()
-    };
-
-    let access_key_text = if app.focus == FocusField::AccessKeyId && app.input_mode == InputMode::Editing {
-        format!("Access Key ID: {}", app.input_buffer)
-    } else {
-        format!("Access Key ID: {}", app.s3_config.masked_access_key())
-    };
-
-    let access_key = Paragraph::new(access_key_text)
-        .style(access_key_style);
-    f.render_widget(access_key, s3_settings_chunks[4]);
-
-    // Secret Access Key
-    let secret_key_style = if app.focus == FocusField::SecretAccessKey {
-        if app.input_mode == InputMode::Editing {
-            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Yellow)
-        }
-    } else {
-        Style::default()
-    };
-
+    fields.push(("Access Key ID", access_key_value, FocusField::AccessKeyId));
+    
+    // Secret Access Key field (with masking as per TDD rule #12)
     let is_editing = app.focus == FocusField::SecretAccessKey && app.input_mode == InputMode::Editing;
-    let secret_key_text = app.s3_config.get_secret_key_display(is_editing, &app.input_buffer);
-
-    let secret_key = Paragraph::new(secret_key_text)
-        .style(secret_key_style);
-    f.render_widget(secret_key, s3_settings_chunks[5]);
-
-    // Path Style
-    let path_style_style = if app.focus == FocusField::PathStyle {
-        Style::default().fg(Color::Yellow)
-    } else {
-        Style::default()
-    };
-    let path_style_text = format!("Path Style: {}", app.s3_config.path_style);
-    let path_style = Paragraph::new(path_style_text)
-        .style(path_style_style);
-    f.render_widget(path_style, s3_settings_chunks[6]);
-
+    let secret_key_value = app.s3_config.get_secret_key_display(is_editing, &app.input_buffer);
+    fields.push(("Secret Access Key", secret_key_value.replace("Secret Access Key: ", ""), FocusField::SecretAccessKey));
+    
+    // Path Style field
+    fields.push(("Path Style", app.s3_config.path_style.to_string(), FocusField::PathStyle));
+    
+    debug!("Created S3 settings fields for table layout");
+    
+    // Create a row for each field
+    for (label, value, field) in &fields {
+        // Determine if this field is focused
+        let is_focused = app.focus == *field;
+        
+        // Style for the label
+        let label_style = Style::default().fg(Color::Blue);
+        
+        // Style for the value - highlight if focused
+        let value_style = if is_focused {
+            if app.input_mode == InputMode::Editing {
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+            }
+        } else {
+            Style::default().fg(Color::White)
+        };
+        
+        // Create the row with styled cells
+        let row = Row::new(vec![
+            Cell::from(label.to_string()).style(label_style),
+            Cell::from(value.clone()).style(value_style),
+        ]);
+        
+        rows.push(row);
+    }
+    
+    // Create and render the table
+    let table = Table::new(
+        rows,
+        [Constraint::Percentage(30), Constraint::Percentage(70)]
+    )
+    .column_spacing(1)
+    .style(Style::default())
+    .header(Row::new(vec![
+        Cell::from(Span::styled("Setting", Style::default().add_modifier(Modifier::BOLD))),
+        Cell::from(Span::styled("Value", Style::default().add_modifier(Modifier::BOLD)))
+    ]));
+    
+    // Render the table inside the block's inner area
+    f.render_widget(table, s3_settings_chunks[0]);
+    
+    debug!("Rendered S3 settings using table layout");
 
     // Only show S3 connection test option if required fields are set
     let has_required_fields = !app.s3_config.bucket.is_empty() &&
@@ -205,7 +164,7 @@ pub fn render_s3_settings<B: Backend>(f: &mut Frame, app: &RustoredApp, area: Re
         .alignment(ratatui::layout::Alignment::Left);
     
     debug!("Rendering navigation help text at the bottom of S3 settings (TDD rule #10)");
-    f.render_widget(help_legend, s3_settings_chunks[8]);
+    f.render_widget(help_legend, s3_settings_chunks[1]);
     
     debug!("Finished rendering S3 settings");
 }

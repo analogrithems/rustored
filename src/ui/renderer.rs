@@ -122,6 +122,8 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
 
     // Render specific restore target settings on the right of the top row
     debug!("Rendering specific restore target settings on the right of the top row");
+    // Render the appropriate settings panel based on the selected restore target
+    // Note: We've covered all possible variants of RestoreTarget enum, so no catch-all is needed
     match app.restore_target {
         RestoreTarget::Postgres => {
             debug!("Rendering PostgreSQL settings panel");
@@ -135,20 +137,6 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
             debug!("Rendering Qdrant settings panel");
             qdrant_settings::render_qdrant_settings(f, app, top_row[2]);
         },
-        _ => {
-            // Render a placeholder for other restore targets
-            debug!("Rendering placeholder for unsupported restore target");
-            let restore_target_name = match app.restore_target {
-                RestoreTarget::Postgres => "PostgreSQL",
-                RestoreTarget::Elasticsearch => "Elasticsearch",
-                RestoreTarget::Qdrant => "Qdrant",
-                _ => "Unknown"
-            };
-            let block = Block::default()
-                .title(format!(" {} Settings ", restore_target_name))
-                .borders(Borders::ALL);
-            f.render_widget(block, top_row[2]);
-        }
     };
     
     // For now, render snapshot list taking up the entire bottom row
