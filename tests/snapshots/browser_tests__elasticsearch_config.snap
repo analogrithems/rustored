@@ -1,0 +1,12 @@
+---
+source: tests/browser_tests.rs
+expression: es_config
+---
+ElasticsearchConfig {
+    host: Some(
+        "http://localhost:9200",
+    ),
+    index: Some(
+        "test-index",
+    ),
+}
