@@ -89,8 +89,314 @@ impl RustoredApp {
 
     /// Handle key events and return a snapshot path if one is downloaded
     pub async fn handle_key_event<B: Backend>(&mut self, key: crossterm::event::KeyEvent) -> Result<Option<String>> {
-        // Delegate to snapshot browser's key handling
-        self.snapshot_browser.handle_key_event::<B>(key, &mut self.popup_state, &mut self.input_mode, &mut self.input_buffer, &mut self.focus, &mut self.s3_config).await
+        use crossterm::event::{KeyCode, KeyModifiers};
+
+        // Handle popup states first
+        if self.popup_state != PopupState::Hidden {
+            match &self.popup_state {
+                PopupState::ConfirmRestore(snapshot) => {
+                    match key.code {
+                        KeyCode::Char('y') | KeyCode::Char('Y') => {
+                            // Download the snapshot
+                            let tmp_path = std::env::temp_dir().join(format!("rustored_snapshot_{}", snapshot.key.replace("/", "_")));
+                            return self.snapshot_browser.download_snapshot(snapshot, &tmp_path).await;
+                        }
+                        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                            self.popup_state = PopupState::Hidden;
+                        }
+                        _ => {}
+                    }
+                    return Ok(None);
+                }
+                PopupState::ConfirmCancel(_, _, _) => {
+                    match key.code {
+                        KeyCode::Char('y') | KeyCode::Char('Y') => {
+                            self.popup_state = PopupState::Error("Download cancelled".to_string());
+                        }
+                        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                            // Resume downloading
+                            if let PopupState::ConfirmCancel(snapshot, progress, rate) = &self.popup_state {
+                                self.popup_state = PopupState::Downloading(snapshot.clone(), *progress, *rate);
+                            }
+                        }
+                        _ => {}
+                    }
+                    return Ok(None);
+                }
+                PopupState::Downloading(_, _, _) => {
+                    if key.code == KeyCode::Esc {
+                        // Ask for confirmation
+                        if let PopupState::Downloading(snapshot, progress, rate) = &self.popup_state {
+                            self.popup_state = PopupState::ConfirmCancel(snapshot.clone(), *progress, *rate);
+                        }
+                    }
+                    return Ok(None);
+                }
+                PopupState::Error(_) | PopupState::Success(_) => {
+                    if key.code == KeyCode::Esc || key.code == KeyCode::Enter {
+                        self.popup_state = PopupState::Hidden;
+                    }
+                    return Ok(None);
+                }
+                _ => {}
+            }
+        }
+
+        // Handle Ctrl+Z to suspend the application
+        if key.code == KeyCode::Char('z') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            // Use the nix crate to send a SIGTSTP signal to the current process
+            #[cfg(unix)]
+            {
+                use nix::sys::signal::{kill, Signal};
+                use nix::unistd::Pid;
+                let _ = kill(Pid::this(), Signal::SIGTSTP);
+            }
+            return Ok(None);
+        }
+
+        // Handle input mode
+        if self.input_mode == InputMode::Editing {
+            match key.code {
+                KeyCode::Enter => {
+                    // Apply the edited value
+                    match self.focus {
+                        FocusField::Bucket => self.s3_config.bucket = self.input_buffer.clone(),
+                        FocusField::Region => self.s3_config.region = self.input_buffer.clone(),
+                        FocusField::Prefix => self.s3_config.prefix = self.input_buffer.clone(),
+                        FocusField::EndpointUrl => self.s3_config.endpoint_url = self.input_buffer.clone(),
+                        FocusField::AccessKeyId => self.s3_config.access_key_id = self.input_buffer.clone(),
+                        FocusField::SecretAccessKey => self.s3_config.secret_access_key = self.input_buffer.clone(),
+                        FocusField::PathStyle => {
+                            self.s3_config.path_style = self.input_buffer.to_lowercase() == "true";
+                        }
+                        FocusField::PgHost => {
+                            if let Some(host) = &mut self.pg_config.host {
+                                *host = self.input_buffer.clone();
+                            } else {
+                                self.pg_config.host = Some(self.input_buffer.clone());
+                            }
+                        }
+                        FocusField::PgPort => {
+                            if let Ok(port) = self.input_buffer.parse::<u16>() {
+                                self.pg_config.port = Some(port);
+                            }
+                        }
+                        FocusField::PgUsername => {
+                            if let Some(username) = &mut self.pg_config.username {
+                                *username = self.input_buffer.clone();
+                            } else {
+                                self.pg_config.username = Some(self.input_buffer.clone());
+                            }
+                        }
+                        FocusField::PgPassword => {
+                            if let Some(password) = &mut self.pg_config.password {
+                                *password = self.input_buffer.clone();
+                            } else {
+                                self.pg_config.password = Some(self.input_buffer.clone());
+                            }
+                        }
+                        FocusField::PgSsl => {
+                            self.pg_config.use_ssl = self.input_buffer.to_lowercase() == "true";
+                        }
+                        FocusField::PgDbName => {
+                            if let Some(db_name) = &mut self.pg_config.db_name {
+                                *db_name = self.input_buffer.clone();
+                            } else {
+                                self.pg_config.db_name = Some(self.input_buffer.clone());
+                            }
+                        }
+                        _ => {}
+                    }
+                    self.input_mode = InputMode::Normal;
+                    
+                    // Update S3 client with new settings if S3 settings were changed
+                    if matches!(self.focus, 
+                        FocusField::Bucket | 
+                        FocusField::Region | 
+                        FocusField::Prefix | 
+                        FocusField::EndpointUrl | 
+                        FocusField::AccessKeyId | 
+                        FocusField::SecretAccessKey | 
+                        FocusField::PathStyle
+                    ) {
+                        self.snapshot_browser.s3_config = self.s3_config.clone();
+                        let _ = self.snapshot_browser.init_client().await;
+                        
+                        // Reload snapshots with new settings
+                        if let Err(e) = self.snapshot_browser.load_snapshots().await {
+                            debug!("Failed to load snapshots: {}", e);
+                        }
+                    }
+                }
+                KeyCode::Esc => {
+                    // Cancel editing
+                    self.input_mode = InputMode::Normal;
+                }
+                KeyCode::Char(c) => {
+                    // Add character
+                    self.input_buffer.push(c);
+                }
+                KeyCode::Backspace => {
+                    // Remove character
+                    self.input_buffer.pop();
+                }
+                _ => {}
+            }
+            return Ok(None);
+        }
+
+        // Normal mode
+        match key.code {
+            KeyCode::Char('q') => {
+                // Quit
+                return Ok(Some("quit".to_string()));
+            }
+            KeyCode::Char('r') => {
+                // Reload snapshots
+                if let Err(e) = self.snapshot_browser.load_snapshots().await {
+                    debug!("Failed to load snapshots: {}", e);
+                }
+            }
+            KeyCode::Tab => {
+                // Cycle between main sections
+                self.focus = match self.focus {
+                    // S3 Settings fields
+                    FocusField::Bucket | 
+                    FocusField::Region | 
+                    FocusField::Prefix | 
+                    FocusField::EndpointUrl | 
+                    FocusField::AccessKeyId | 
+                    FocusField::SecretAccessKey | 
+                    FocusField::PathStyle => {
+                        // Move to next S3 field or to snapshot list
+                        match self.focus {
+                            FocusField::Bucket => FocusField::Region,
+                            FocusField::Region => FocusField::Prefix,
+                            FocusField::Prefix => FocusField::EndpointUrl,
+                            FocusField::EndpointUrl => FocusField::AccessKeyId,
+                            FocusField::AccessKeyId => FocusField::SecretAccessKey,
+                            FocusField::SecretAccessKey => FocusField::PathStyle,
+                            FocusField::PathStyle => FocusField::SnapshotList,
+                            _ => FocusField::SnapshotList,
+                        }
+                    }
+                    // Snapshot list
+                    FocusField::SnapshotList => {
+                        // Move to restore target fields
+                        match self.restore_target {
+                            RestoreTarget::Postgres => FocusField::PgHost,
+                            RestoreTarget::Elasticsearch => FocusField::Bucket, // Placeholder, replace with actual ES field
+                            RestoreTarget::Qdrant => FocusField::Bucket, // Placeholder, replace with actual Qdrant field
+                        }
+                    }
+                    // Postgres fields
+                    FocusField::PgHost | 
+                    FocusField::PgPort | 
+                    FocusField::PgUsername | 
+                    FocusField::PgPassword | 
+                    FocusField::PgSsl | 
+                    FocusField::PgDbName => {
+                        // Move to next Postgres field or back to S3 settings
+                        match self.focus {
+                            FocusField::PgHost => FocusField::PgPort,
+                            FocusField::PgPort => FocusField::PgUsername,
+                            FocusField::PgUsername => FocusField::PgPassword,
+                            FocusField::PgPassword => FocusField::PgSsl,
+                            FocusField::PgSsl => FocusField::PgDbName,
+                            FocusField::PgDbName => FocusField::Bucket,
+                            _ => FocusField::Bucket,
+                        }
+                    }
+                    _ => FocusField::Bucket,
+                };
+            }
+            KeyCode::Char('e') => {
+                // Edit field
+                if self.focus != FocusField::SnapshotList {
+                    self.input_mode = InputMode::Editing;
+                    // Set input buffer to current value
+                    self.input_buffer = match self.focus {
+                        FocusField::Bucket => self.s3_config.bucket.clone(),
+                        FocusField::Region => self.s3_config.region.clone(),
+                        FocusField::Prefix => self.s3_config.prefix.clone(),
+                        FocusField::EndpointUrl => self.s3_config.endpoint_url.clone(),
+                        FocusField::AccessKeyId => self.s3_config.access_key_id.clone(),
+                        FocusField::SecretAccessKey => self.s3_config.secret_access_key.clone(),
+                        FocusField::PathStyle => self.s3_config.path_style.to_string(),
+                        FocusField::PgHost => self.pg_config.host.clone().unwrap_or_default(),
+                        FocusField::PgPort => self.pg_config.port.map(|p| p.to_string()).unwrap_or_default(),
+                        FocusField::PgUsername => self.pg_config.username.clone().unwrap_or_default(),
+                        FocusField::PgPassword => self.pg_config.password.clone().unwrap_or_default(),
+                        FocusField::PgSsl => self.pg_config.use_ssl.to_string(),
+                        FocusField::PgDbName => self.pg_config.db_name.clone().unwrap_or_default(),
+                        _ => String::new(),
+                    };
+                }
+            }
+            // Handle snapshot list navigation when it's focused
+            KeyCode::Down | KeyCode::Char('j') => {
+                if self.focus == FocusField::SnapshotList && !self.snapshot_browser.snapshots.is_empty() {
+                    self.snapshot_browser.selected_index = 
+                        (self.snapshot_browser.selected_index + 1) % self.snapshot_browser.snapshots.len();
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.focus == FocusField::SnapshotList && !self.snapshot_browser.snapshots.is_empty() {
+                    self.snapshot_browser.selected_index = if self.snapshot_browser.selected_index == 0 {
+                        self.snapshot_browser.snapshots.len() - 1
+                    } else {
+                        self.snapshot_browser.selected_index - 1
+                    };
+                }
+            }
+            KeyCode::Enter => {
+                // Handle different actions based on focus
+                if self.focus == FocusField::SnapshotList && !self.snapshot_browser.snapshots.is_empty() {
+                    // Select snapshot for restore
+                    let snapshot = &self.snapshot_browser.snapshots[self.snapshot_browser.selected_index];
+                    self.popup_state = PopupState::ConfirmRestore(snapshot.clone());
+                }
+            }
+            // Add restore target selection with 1, 2, 3 keys
+            KeyCode::Char('1') => {
+                self.restore_target = RestoreTarget::Postgres;
+                // Set focus to first PostgreSQL field if not already on a PostgreSQL field
+                if !matches!(self.focus, 
+                    FocusField::PgHost | 
+                    FocusField::PgPort | 
+                    FocusField::PgUsername | 
+                    FocusField::PgPassword | 
+                    FocusField::PgSsl | 
+                    FocusField::PgDbName
+                ) {
+                    self.focus = FocusField::PgHost;
+                }
+            }
+            KeyCode::Char('2') => {
+                self.restore_target = RestoreTarget::Elasticsearch;
+                // Set focus to first Elasticsearch field if not already on an Elasticsearch field
+                if !matches!(self.focus, 
+                    FocusField::EsHost | 
+                    FocusField::EsIndex
+                ) {
+                    self.focus = FocusField::EsHost;
+                }
+            }
+            KeyCode::Char('3') => {
+                self.restore_target = RestoreTarget::Qdrant;
+                // Set focus to first Qdrant field if not already on a Qdrant field
+                if !matches!(self.focus, 
+                    FocusField::EsHost | 
+                    FocusField::EsIndex | 
+                    FocusField::QdrantApiKey
+                ) {
+                    self.focus = FocusField::EsHost;
+                }
+            }
+            _ => {}
+        }
+
+        Ok(None)
     }
 
     /// Restore a database from a downloaded snapshot file

@@ -4,10 +4,10 @@ use insta::assert_debug_snapshot;
 use rustored::ui::models::{BackupMetadata, FocusField, InputMode, PopupState, PostgresConfig, S3Config, ElasticsearchConfig, QdrantConfig, RestoreTarget};
 use aws_sdk_s3::primitives::DateTime as AwsDateTime;
 
-// Helper function to create a test AwsDateTime with a fixed timestamp
-fn create_test_aws_datetime() -> AwsDateTime {
+// Helper function to create a test timestamp with a fixed value
+fn create_test_aws_datetime() -> f64 {
     // Use a fixed timestamp for testing (2023-01-01 12:00:00 UTC)
-    AwsDateTime::from_secs(1672574400)
+    1672574400.0
 }
 
 #[test]
