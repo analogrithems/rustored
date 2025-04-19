@@ -28,8 +28,7 @@ fn test_layout_constraints() {
         .constraints(
             [
                 Constraint::Length(3),  // Title
-                Constraint::Length(9),  // S3 Settings
-                Constraint::Length(8),  // PostgreSQL Settings
+                Constraint::Length(8),  // S3 Settings & Restore Target (horizontal row)
                 Constraint::Min(10),    // Snapshot List
             ]
             .as_ref(),
@@ -38,14 +37,14 @@ fn test_layout_constraints() {
 
     assert_debug_snapshot!("vertical_layout", vertical_layout);
 
-    // Test horizontal layout with percentage constraints
+    // Test horizontal layout with percentage constraints for S3 Settings, Restore Target, and Restore Settings
     let horizontal_layout = Layout::default()
         .direction(Direction::Horizontal)
         .constraints(
             [
-                Constraint::Percentage(30),
-                Constraint::Percentage(40),
-                Constraint::Percentage(30),
+                Constraint::Percentage(30),  // S3 Settings
+                Constraint::Percentage(20),  // Restore Target
+                Constraint::Percentage(50),  // Restore Settings
             ]
             .as_ref(),
         )

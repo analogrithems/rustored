@@ -11,7 +11,7 @@ use crate::ui::models::{FocusField, InputMode, RestoreTarget, PopupState};
 use crate::ui::rustored::RustoredApp;
 
 /// Helper function to create a centered rect using up certain percentage of the available rect
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     let popup_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints(

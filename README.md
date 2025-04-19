@@ -1,8 +1,8 @@
 <!-- markdownlint-disable MD034 -->
 
-# Rustored v0.1.0 (2025-04-18)
+# Rustored v0.2.0 (2025-04-19)
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
+![Version](https://img.shields.io/badge/version-0.2.0-blue)
 ![Rustored Logo](logo.png)
 [*] — Dont panic, your data is safe!
 
@@ -14,6 +14,9 @@ Rustored is a terminal-based CLI and TUI application for downloading and restori
 - Download snapshots with progress feedback
 - Restore snapshots to Postgres, Elasticsearch, or Qdrant
 - Flexible configuration via CLI flags or environment variables
+- Intuitive navigation with keyboard shortcuts
+- Dynamic UI that adapts to the selected restore target
+- Ability to suspend the application with Ctrl+Z
 
 ## Installation
 
@@ -70,10 +73,18 @@ rustored --s3-bucket <BUCKET> --s3-access-key-id <KEY> --s3-secret-access-key <S
 Simply run without subcommands to launch the interactive UI:
 
 ```bash
-rustored
+rustored browse-snapshots
 ```
 
-Use arrow keys to navigate, Enter to confirm download, and restore.
+**Navigation:**
+
+- Use arrow keys or j/k to navigate the snapshot list
+- Press Tab to cycle between different sections (S3 Settings, Restore Target, Snapshot List)
+- Press 1, 2, or 3 to select different restore targets (PostgreSQL, Elasticsearch, Qdrant)
+- Press e to edit the currently focused field
+- Press Enter to confirm selection or save edits
+- Press q to quit the application
+- Press Ctrl+Z to suspend the application
 
 ## Configuration
 
