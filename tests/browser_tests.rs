@@ -2,7 +2,6 @@ use insta::assert_debug_snapshot;
 
 // We need to use the crate name directly since we're in an integration test
 use rustored::ui::models::{BackupMetadata, FocusField, InputMode, PopupState, PostgresConfig, S3Config, ElasticsearchConfig, QdrantConfig, RestoreTarget};
-use aws_sdk_s3::primitives::DateTime as AwsDateTime;
 
 // Helper function to create a test timestamp with a fixed value
 fn create_test_aws_datetime() -> f64 {

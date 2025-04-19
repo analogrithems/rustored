@@ -1,9 +1,9 @@
 use ratatui::{
     backend::Backend,
-    layout::{Alignment, Rect},
+    layout::Alignment,
     style::{Color, Style},
     text::{Span, Line},
-    widgets::{Block, Borders, Paragraph, Clear},
+    widgets::{Block, Borders, Paragraph},
     Frame,
 };
 
