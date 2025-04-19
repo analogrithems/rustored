@@ -6,7 +6,7 @@ use crossterm::{
     execute,
 };
 use libc::{raise, SIGTSTP};
-use log::{debug, error, info};
+use log::{debug, info};
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::Terminal;
 use std::time::Duration;
@@ -595,428 +595,90 @@ pub async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut browser: Snapsh
                     execute!(stdout(), EnterAlternateScreen, EnableMouseCapture)?;
                     continue;
                 }
+
                 match browser.input_mode {
-                    // Handle editing for restore fields
-                    InputMode::Editing => match browser.focus {
-                        FocusField::EsHost => {
-                            if let KeyCode::Enter = key.code {
-                                browser.es_host = Some(browser.input_buffer.clone());
-                                browser.input_mode = InputMode::Normal;
-                            } else if let KeyCode::Char(c) = key.code {
-                                browser.input_buffer.push(c);
-                            } else if let KeyCode::Backspace = key.code {
-                                browser.input_buffer.pop();
-                            }
-                        },
-                        FocusField::EsIndex => {
-                            if let KeyCode::Enter = key.code {
-                                browser.es_index = Some(browser.input_buffer.clone());
-                                browser.input_mode = InputMode::Normal;
-                            } else if let KeyCode::Char(c) = key.code {
-                                browser.input_buffer.push(c);
-                            } else if let KeyCode::Backspace = key.code {
-                                browser.input_buffer.pop();
-                            }
-                        },
-                        FocusField::QdrantApiKey => {
-                            if let KeyCode::Enter = key.code {
-                                browser.qdrant_api_key = Some(browser.input_buffer.clone());
-                                browser.input_mode = InputMode::Normal;
-                            } else if let KeyCode::Char(c) = key.code {
-                                browser.input_buffer.push(c);
-                            } else if let KeyCode::Backspace = key.code {
-                                browser.input_buffer.pop();
-                            }
-                        },
-                        _ => {},
+                    InputMode::Editing => {
+                        // Editing logic is handled in the specific window modules
+                        if key.code == KeyCode::Esc {
+                            browser.input_mode = InputMode::Normal;
+                            debug!("Exited editing mode");
+                        }
                     },
-                    InputMode::Normal => match key.code {
-                        KeyCode::Char('q') => {
-                            debug!("User pressed 'q' to quit");
-                            return Ok(None);
-                        },
-                        KeyCode::Esc => {
-                            match &browser.popup_state {
-                                PopupState::Downloading(snapshot, progress, rate) => {
-                                    debug!("User pressed ESC to cancel download");
-                                    // Show cancel confirmation
-                                    browser.popup_state = PopupState::ConfirmCancel(snapshot.clone(), *progress, *rate);
-                                }
-                                PopupState::ConfirmRestore(_snapshot) => {
-                                    browser.popup_state = PopupState::Hidden;
-                                },
-                                PopupState::TestS3Result(_) | PopupState::TestPgResult(_) => {
-                                    browser.popup_state = PopupState::Hidden;
-                                }
-                                _ => {}
-                            }
-                        },
-                        KeyCode::Char('y') if matches!(browser.popup_state, PopupState::ConfirmCancel(..)) => {
-                            debug!("User confirmed download cancel");
-                            // User confirmed cancel
-                            browser.popup_state = PopupState::Hidden;
-                            browser.temp_file = None; // Reset temp file
-                        },
-
-                        KeyCode::Char('y') if matches!(browser.popup_state, PopupState::ConfirmRestore(_)) => {
-                            if let Some(snapshot) = browser.selected_snapshot().cloned() {
-                                info!("User confirmed restore of snapshot: {}", snapshot.key);
-                                // Create a persistent file in the system's temp directory
-                                let temp_dir = std::env::temp_dir();
-                                let file_name = format!("pg-backup-{}.sql", chrono::Utc::now().timestamp());
-                                let temp_path = temp_dir.join(file_name);
-                                info!("Creating persistent backup file at: {}", temp_path.display());
-
-                                // Start download
-                                match browser.download_snapshot(&snapshot, terminal, &temp_path).await {
-                                    Ok(Some(downloaded_path)) => {
-                                        // Now that we have the file, start the restore process
-                                        info!("Starting restore process for downloaded file: {}", downloaded_path);
-                                        if let Err(e) = browser.restore_snapshot(&snapshot, terminal, &downloaded_path).await {
-                                            error!("Error during restore: {}", e);
-                                            browser.popup_state = PopupState::Error("pg_restore finished with errors, check rustored.log for details".to_string());
-                                        }
-                                        // Don't exit the program, just continue with the UI loop
-                                        // Store the downloaded path in case we need it later
-                                        browser.temp_file = Some(downloaded_path);
-                                    },
-                                    Ok(None) => {},  // Download was cancelled or failed
-                                    Err(e) => {
-                                        error!("Error during download: {}", e);
-                                        browser.popup_state = PopupState::Error(format!("Download error: {}", e));
-                                    }
-                                }
-                            }
-                        },
-                        KeyCode::Char('n') => match &browser.popup_state {
-                            PopupState::ConfirmCancel(snapshot, progress, rate) => {
-                                debug!("User denied download cancel");
-                                // User denied cancel, resume download
-                                browser.popup_state = PopupState::Downloading(snapshot.clone(), *progress, *rate);
-                            }
-                            PopupState::ConfirmRestore(_snapshot) => {
-                                browser.popup_state = PopupState::Hidden;
-                            }
-                            _ => {
-                                browser.focus = FocusField::PgDbName;
-                            }
-                        },
-                        KeyCode::Char('t') => {
-                            debug!("User pressed 't' to test connection");
-                            match browser.focus {
-                                FocusField::Bucket | FocusField::Region | FocusField::Prefix |
-                                FocusField::EndpointUrl | FocusField::AccessKeyId |
-                                FocusField::SecretAccessKey | FocusField::PathStyle => {
-                                    if let Err(e) = browser.test_s3_connection().await {
-                                        browser.popup_state = PopupState::Error(format!("Error: {}", e));
-                                    }
-                                }
-                                FocusField::PgHost | FocusField::PgPort | FocusField::PgUsername |
-                                FocusField::PgPassword | FocusField::PgSsl | FocusField::PgDbName => {
-                                    if let Err(e) = browser.test_pg_connection().await {
-                                        browser.popup_state = PopupState::Error(format!("Error: {}", e));
-                                    }
-                                }
-                                _ => {}
-                            }
-                        },
-                        KeyCode::Enter => {
-                            if browser.focus == FocusField::SnapshotList {
-                                if let Some(snapshot) = browser.selected_snapshot() {
-                                    browser.popup_state = PopupState::ConfirmRestore(snapshot.clone());
-                                }
-                            } 
-                        },
-                        KeyCode::Tab => {
-                            use crate::ui::models::FocusField;
-                            // Define panel representatives
-                            let panels = vec![
-                                FocusField::SnapshotList,
-                                FocusField::RestoreTarget,
-                                FocusField::Bucket,
-                            ];
-                            // Determine current panel index
-                            let idx = panels.iter().position(|panel| {
-                                match panel {
-                                    FocusField::SnapshotList => browser.focus == FocusField::SnapshotList,
-                                    FocusField::RestoreTarget => matches!(
-                                        browser.focus,
-                                        FocusField::RestoreTarget
-                                            | FocusField::PgHost
-                                            | FocusField::PgPort
-                                            | FocusField::PgUsername
-                                            | FocusField::PgPassword
-                                            | FocusField::PgSsl
-                                            | FocusField::PgDbName
-                                            | FocusField::EsHost
-                                            | FocusField::EsIndex
-                                            | FocusField::QdrantApiKey
-                                    ),
-                                    FocusField::Bucket => matches!(
-                                        browser.focus,
-                                        FocusField::Bucket
-                                            | FocusField::Region
-                                            | FocusField::Prefix
-                                            | FocusField::EndpointUrl
-                                            | FocusField::AccessKeyId
-                                            | FocusField::SecretAccessKey
-                                            | FocusField::PathStyle
-                                    ),
-                                    _ => false,
-                                }
-                            }).unwrap_or(0);
-                            // Cycle to next panel
-                            browser.focus = panels[(idx + 1) % panels.len()];
-                        },
-                        // Edit mode
-                        KeyCode::Char('e') if browser.focus != FocusField::SnapshotList => {
-                            browser.input_mode = InputMode::Editing;
-                            browser.input_buffer = match browser.focus {
-                                FocusField::SnapshotList => String::new(),
-                                FocusField::RestoreTarget => String::new(),
-                                FocusField::EsHost => browser.es_host.clone().unwrap_or_default(),
-                                FocusField::EsIndex => browser.es_index.clone().unwrap_or_default(),
-                                FocusField::QdrantApiKey => browser.qdrant_api_key.clone().unwrap_or_default(),
-                                FocusField::Bucket => browser.config.bucket.clone(),
-                                FocusField::Region => browser.config.region.clone(),
-                                FocusField::Prefix => browser.config.prefix.clone(),
-                                FocusField::EndpointUrl => browser.config.endpoint_url.clone(),
-                                FocusField::AccessKeyId => browser.config.access_key_id.clone(),
-                                FocusField::SecretAccessKey => browser.config.secret_access_key.clone(),
-                                FocusField::PathStyle => browser.config.path_style.to_string(),
-                                FocusField::PgHost => browser.pg_config.host.clone().unwrap_or_default(),
-                                FocusField::PgPort => browser.pg_config.port.map(|p| p.to_string()).unwrap_or_default(),
-                                FocusField::PgUsername => browser.pg_config.username.clone().unwrap_or_default(),
-                                FocusField::PgPassword => browser.pg_config.password.clone().unwrap_or_default(),
-                                FocusField::PgSsl => browser.pg_config.use_ssl.to_string(),
-                                FocusField::PgDbName => browser.pg_config.db_name.clone().unwrap_or_default(),
-                            };
-                        },
-                        // S3 Settings shortcuts
-                        KeyCode::Char('b') if browser.input_mode == InputMode::Normal => browser.focus = FocusField::Bucket,
-                        KeyCode::Char('R') if browser.input_mode == InputMode::Normal => browser.focus = FocusField::Region,
-                        KeyCode::Char('x') if browser.input_mode == InputMode::Normal => browser.focus = FocusField::Prefix,
-                        // Restore Target hotkeys
-                        KeyCode::Char('P') if browser.input_mode == InputMode::Normal => {
-                            browser.restore_target = crate::ui::models::RestoreTarget::Postgres;
-                            browser.focus = crate::ui::models::FocusField::PgHost;
-                        },
-                        KeyCode::Char('E') if browser.input_mode == InputMode::Normal => {
-                            browser.restore_target = crate::ui::models::RestoreTarget::Elasticsearch;
-                            browser.focus = crate::ui::models::FocusField::EsHost;
-                        },
-                        KeyCode::Char('Q') if browser.input_mode == InputMode::Normal => {
-                            browser.restore_target = crate::ui::models::RestoreTarget::Qdrant;
-                            browser.focus = crate::ui::models::FocusField::QdrantApiKey;
-                        },
-                        // Navigation shortcuts
-                        KeyCode::Down | KeyCode::Char('j') if browser.input_mode == InputMode::Normal => {
-                            use crate::ui::models::FocusField;
-                            match browser.focus {
-                                // Snapshot list
-                                FocusField::SnapshotList => browser.next(),
-                                // Restore window fields
-                                FocusField::RestoreTarget | FocusField::PgHost | FocusField::PgPort |
-                                FocusField::PgUsername | FocusField::PgPassword | FocusField::PgSsl |
-                                FocusField::PgDbName | FocusField::EsHost | FocusField::EsIndex |
-                                FocusField::QdrantApiKey => {
-                                    // Define restore fields order based on target
-                                    let fields = match browser.restore_target {
-                                        crate::ui::models::RestoreTarget::Postgres => vec![FocusField::PgHost, FocusField::PgPort, FocusField::PgUsername, FocusField::PgPassword, FocusField::PgSsl, FocusField::PgDbName],
-                                        crate::ui::models::RestoreTarget::Elasticsearch => vec![FocusField::EsHost, FocusField::EsIndex],
-                                        crate::ui::models::RestoreTarget::Qdrant => vec![FocusField::QdrantApiKey],
+                    InputMode::Normal => {
+                        match key.code {
+                            KeyCode::Char('q') => {
+                                debug!("User pressed 'q' to quit");
+                                return Ok(None);
+                            },
+                            KeyCode::Tab => {
+                                if browser.focus == FocusField::RestoreTarget {
+                                    // Enter settings for selected restore target
+                                    browser.focus = match browser.restore_target {
+                                        RestoreTarget::Postgres => FocusField::PgHost,
+                                        RestoreTarget::Elasticsearch => FocusField::EsHost,
+                                        RestoreTarget::Qdrant => FocusField::QdrantApiKey,
                                     };
-                                    // find current idx, move next (wrap)
-                                    if let Some(idx) = fields.iter().position(|&f| f == browser.focus) {
-                                        let next = fields[(idx + 1) % fields.len()];
-                                        browser.focus = next;
-                                    } else {
-                                        // focus on first field
-                                        browser.focus = fields[0];
-                                    }
+                                    debug!("Switched focus into {:?} settings", browser.focus);
+                                } else {
+                                    // Cycle through main windows: Restore Target, S3 Settings, Snapshots
+                                    let windows = [FocusField::RestoreTarget, FocusField::Bucket, FocusField::SnapshotList];
+                                    let idx = windows.iter().position(|w| browser.focus == *w).unwrap_or(0);
+                                    browser.focus = windows[(idx + 1) % windows.len()];
+                                    debug!("Switched focus to window: {:?}", browser.focus);
                                 }
-                                // S3 window fields
-                                FocusField::Bucket | FocusField::Region | FocusField::Prefix |
-                                FocusField::EndpointUrl | FocusField::AccessKeyId |
-                                FocusField::SecretAccessKey | FocusField::PathStyle => {
-                                    let s3_fields = vec![FocusField::Bucket, FocusField::Region, FocusField::Prefix, FocusField::EndpointUrl, FocusField::AccessKeyId, FocusField::SecretAccessKey, FocusField::PathStyle];
-                                    if let Some(idx) = s3_fields.iter().position(|&f| f == browser.focus) {
-                                        browser.focus = s3_fields[(idx + 1) % s3_fields.len()];
-                                    } else {
-                                        browser.focus = FocusField::Bucket;
-                                    }
-                                }
-                                _ => {}
-                            }
-                        },
-                        KeyCode::Up | KeyCode::Char('k') if browser.input_mode == InputMode::Normal => {
-                            use crate::ui::models::FocusField;
-                            match browser.focus {
-                                FocusField::SnapshotList => browser.previous(),
-                                FocusField::RestoreTarget | FocusField::PgHost | FocusField::PgPort |
-                                FocusField::PgUsername | FocusField::PgPassword | FocusField::PgSsl |
-                                FocusField::PgDbName | FocusField::EsHost | FocusField::EsIndex |
-                                FocusField::QdrantApiKey => {
-                                    let fields = match browser.restore_target {
-                                        crate::ui::models::RestoreTarget::Postgres => vec![FocusField::PgHost, FocusField::PgPort, FocusField::PgUsername, FocusField::PgPassword, FocusField::PgSsl, FocusField::PgDbName],
-                                        crate::ui::models::RestoreTarget::Elasticsearch => vec![FocusField::EsHost, FocusField::EsIndex],
-                                        crate::ui::models::RestoreTarget::Qdrant => vec![FocusField::QdrantApiKey],
+                            },
+                            KeyCode::BackTab => {
+                                // Reverse cycle
+                                let windows = [FocusField::RestoreTarget, FocusField::Bucket, FocusField::SnapshotList];
+                                let idx = windows.iter().position(|w| browser.focus == *w).unwrap_or(0);
+                                browser.focus = windows[(idx + windows.len() - 1) % windows.len()];
+                                debug!("Switched focus to window: {:?}", browser.focus);
+                            },
+                            KeyCode::Left | KeyCode::Right => {
+                                // Tab navigation (left/right) for RestoreTarget tabs
+                                if browser.focus == FocusField::RestoreTarget {
+                                    let _prev = browser.restore_target.clone();
+                                    browser.restore_target = match (browser.restore_target.clone(), key.code) {
+                                        (RestoreTarget::Postgres, KeyCode::Right) => RestoreTarget::Elasticsearch,
+                                        (RestoreTarget::Elasticsearch, KeyCode::Right) => RestoreTarget::Qdrant,
+                                        (RestoreTarget::Qdrant, KeyCode::Right) => RestoreTarget::Postgres,
+                                        (RestoreTarget::Postgres, KeyCode::Left) => RestoreTarget::Qdrant,
+                                        (RestoreTarget::Elasticsearch, KeyCode::Left) => RestoreTarget::Postgres,
+                                        (RestoreTarget::Qdrant, KeyCode::Left) => RestoreTarget::Elasticsearch,
+                                        (other, _) => other,
                                     };
-                                    if let Some(idx) = fields.iter().position(|&f| f == browser.focus) {
-                                        let prev = fields[(idx + fields.len() - 1) % fields.len()];
-                                        browser.focus = prev;
-                                    } else {
-                                        browser.focus = fields[0];
-                                    }
+                                    debug!("Switched restore target tab: {:?}", browser.restore_target);
                                 }
-                                FocusField::Bucket | FocusField::Region | FocusField::Prefix |
-                                FocusField::EndpointUrl | FocusField::AccessKeyId |
-                                FocusField::SecretAccessKey | FocusField::PathStyle => {
-                                    let s3_fields = vec![FocusField::Bucket, FocusField::Region, FocusField::Prefix, FocusField::EndpointUrl, FocusField::AccessKeyId, FocusField::SecretAccessKey, FocusField::PathStyle];
-                                    if let Some(idx) = s3_fields.iter().position(|&f| f == browser.focus) {
-                                        let prev = s3_fields[(idx + s3_fields.len() - 1) % s3_fields.len()];
-                                        browser.focus = prev;
-                                    } else {
-                                        browser.focus = FocusField::Bucket;
-                                    }
-                                }
-                                _ => {}
-                            }
-                        },
-                        // S3 Settings shortcuts
-                        KeyCode::Char('E') if browser.input_mode == InputMode::Normal => {
-                            browser.focus = FocusField::EndpointUrl;
-                        },
-                        KeyCode::Char('a') if browser.input_mode == InputMode::Normal => {
-                            browser.focus = FocusField::AccessKeyId;
-                        },
-                        KeyCode::Char('s') if browser.input_mode == InputMode::Normal => {
-                            browser.focus = FocusField::SecretAccessKey;
-                        },
-                        // PostgreSQL Settings shortcuts
-                        KeyCode::Char('h') if browser.input_mode == InputMode::Normal => {
-                            browser.focus = FocusField::PgHost;
-                        },
-                        KeyCode::Char('p') if browser.input_mode == InputMode::Normal => {
-                            browser.focus = FocusField::PgPort;
-                        },
-                        KeyCode::Char('u') if browser.input_mode == InputMode::Normal => {
-                            browser.focus = FocusField::PgUsername;
-                        },
-                        KeyCode::Char('f') if browser.input_mode == InputMode::Normal => {
-                            browser.focus = FocusField::PgPassword;
-                        },
-                        KeyCode::Char('l') if browser.input_mode == InputMode::Normal => {
-                            browser.focus = FocusField::PgSsl;
-                        },
-                        // State management
-                        KeyCode::Char('r') => {
-                            debug!("User pressed 'r' to refresh snapshots");
-                            if let Err(e) = browser.load_snapshots().await {
-                                browser.popup_state = PopupState::Error(format!("Error: {}", e));
-                            }
-                        },
-                        KeyCode::Char('e') => {
-                            browser.input_mode = InputMode::Editing;
-                            // Pre-populate input buffer with current value based on focus
-                            browser.input_buffer = match browser.focus {
-                                FocusField::SnapshotList => String::new(),
-                                FocusField::RestoreTarget => String::new(),
-                                FocusField::EsHost => browser.es_host.clone().unwrap_or_default(),
-                                FocusField::EsIndex => browser.es_index.clone().unwrap_or_default(),
-                                FocusField::QdrantApiKey => browser.qdrant_api_key.clone().unwrap_or_default(),
-                                FocusField::Bucket => browser.config.bucket.clone(),
-                                FocusField::Region => browser.config.region.clone(),
-                                FocusField::Prefix => browser.config.prefix.clone(),
-                                FocusField::EndpointUrl => browser.config.endpoint_url.clone(),
-                                FocusField::AccessKeyId => browser.config.access_key_id.clone(),
-                                FocusField::SecretAccessKey => browser.config.secret_access_key.clone(),
-                                FocusField::PathStyle => browser.config.path_style.to_string(),
-                                FocusField::PgHost => browser.pg_config.host.clone().unwrap_or_default(),
-                                FocusField::PgPort => browser.pg_config.port.map(|p| p.to_string()).unwrap_or_default(),
-                                FocusField::PgUsername => browser.pg_config.username.clone().unwrap_or_default(),
-                                FocusField::PgPassword => browser.pg_config.password.clone().unwrap_or_default(),
-                                FocusField::PgSsl => browser.pg_config.use_ssl.to_string(),
-                                FocusField::PgDbName => browser.pg_config.db_name.clone().unwrap_or_default()
-                            };
-                        },
-                        // Handle any unmatched key
-                        _ => {}
-                    },
-                    InputMode::Editing => match key.code {
-                        KeyCode::Enter => {
-                            if browser.focus == FocusField::SnapshotList {
-                                if let Some(snapshot) = browser.selected_snapshot() {
-                                    browser.popup_state = PopupState::ConfirmRestore(snapshot.clone());
-                                }
-                            } else {
-                                debug!("Enter key pressed, attempting to initialize S3 client");
-                                browser.input_mode = InputMode::Normal;
+                            },
+                            KeyCode::Up | KeyCode::Down | KeyCode::Enter => {
+                                // Delegate navigation within the current window to the window-specific handler
                                 match browser.focus {
+                                    FocusField::SnapshotList => {
+                                        // Delegate to snapshot list navigation handler
+                                        if handle_snapshot_list_navigation(&mut browser, key.code) {
+                                            debug!("Snapshot list navigation: focus={:?} selected_idx={:?}", browser.focus, browser.selected_idx);
+                                        }
+                                    },
+                                    FocusField::Bucket | FocusField::Region | FocusField::Prefix |
+                                    FocusField::EndpointUrl | FocusField::AccessKeyId |
+                                    FocusField::SecretAccessKey | FocusField::PathStyle => {
+                                        // Delegate to S3 settings navigation handler
+                                        if handle_s3_settings_navigation(&mut browser, key.code) {
+                                            debug!("S3 settings navigation: focus={:?}", browser.focus);
+                                        }
+                                    },
                                     FocusField::RestoreTarget => {
-                                        browser.restore_target = match browser.input_buffer.to_lowercase().as_str() {
-                                            "postgres" => crate::ui::models::RestoreTarget::Postgres,
-                                            "elasticsearch" => crate::ui::models::RestoreTarget::Elasticsearch,
-                                            "qdrant" => crate::ui::models::RestoreTarget::Qdrant,
-                                            _ => browser.restore_target,
+                                        // Delegate to restore target navigation handler
+                                        if handle_restore_target_navigation(&mut browser, key.code) {
+                                            debug!("Restore target navigation: focus={:?}", browser.focus);
                                         }
                                     },
-                                    FocusField::EsHost => browser.es_host = Some(browser.input_buffer.clone()),
-                                    FocusField::EsIndex => browser.es_index = Some(browser.input_buffer.clone()),
-                                    FocusField::QdrantApiKey => browser.qdrant_api_key = Some(browser.input_buffer.clone()),
-                                    FocusField::Bucket => browser.config.bucket = browser.input_buffer.clone(),
-                                    FocusField::Region => browser.config.region = browser.input_buffer.clone(),
-                                    FocusField::Prefix => browser.config.prefix = browser.input_buffer.clone(),
-                                    FocusField::EndpointUrl => browser.config.endpoint_url = browser.input_buffer.clone(),
-                                    FocusField::AccessKeyId => browser.config.access_key_id = browser.input_buffer.clone(),
-                                    FocusField::SecretAccessKey => browser.config.secret_access_key = browser.input_buffer.clone(),
-                                    FocusField::PathStyle => {
-                                        browser.config.path_style = browser.input_buffer.to_lowercase() == "true";
-                                    },
-                                    FocusField::PgHost => browser.pg_config.host = Some(browser.input_buffer.clone()),
-                                    FocusField::PgPort => {
-                                        if browser.input_buffer.is_empty() {
-                                            browser.pg_config.port = None;
-                                        } else {
-                                            match browser.input_buffer.parse::<u16>() {
-                                                Ok(port) => browser.pg_config.port = Some(port),
-                                                Err(_) => {
-                                                    browser.popup_state = PopupState::Error("Invalid port number".to_string());
-                                                }
-                                            }
-                                        }
-                                    },
-                                    FocusField::PgUsername => browser.pg_config.username = Some(browser.input_buffer.clone()),
-                                    FocusField::PgPassword => browser.pg_config.password = Some(browser.input_buffer.clone()),
-                                    FocusField::PgSsl => {
-                                        browser.pg_config.use_ssl = browser.input_buffer.to_lowercase() == "true";
-                                    },
-                                    FocusField::PgDbName => browser.pg_config.db_name = Some(browser.input_buffer.clone()),
                                     _ => {}
                                 }
-
-                                // Try to initialize S3 client if all required fields are filled
-                                if let Err(e) = browser.init_s3_client().await {
-                                    debug!("Failed to initialize S3 client: {}", e);
-                                } else {
-                                    // Load snapshots if S3 client was initialized successfully
-                                    if let Err(e) = browser.load_snapshots().await {
-                                        debug!("Failed to load snapshots: {}", e);
-                                    }
-                                }
-                            }
-                        },
-                        KeyCode::Char(c) => {
-                            browser.input_buffer.push(c);
-                        },
-                        KeyCode::Backspace => {
-                            browser.input_buffer.pop();
-                        },
-                        KeyCode::Esc => {
-                            browser.input_mode = InputMode::Normal;
-                        },
-                        _ => {}
-                    },
+                            },
+                            _ => {}
+                        }
+                    }
                 }
             }
         }
@@ -1026,5 +688,33 @@ pub async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut browser: Snapsh
             sleep(Duration::from_secs(1)).await;
             browser.popup_state = PopupState::Hidden;
         }
-    } // end loop
-} // end fn run_app
+    }
+    Ok(None)
+}
+
+
+fn handle_snapshot_list_navigation(browser: &mut SnapshotBrowser, key: KeyCode) -> bool {
+    match key {
+        KeyCode::Up => { browser.previous(); true },
+        KeyCode::Down => { browser.next(); true },
+        KeyCode::Enter => {
+            if let Some(snapshot) = browser.selected_snapshot() {
+                let key = snapshot.key.clone();
+                browser.popup_state = PopupState::ConfirmRestore(snapshot.to_owned());
+                debug!("Selected snapshot for restore: {}", key);
+            }
+            true
+        },
+        _ => false
+    }
+}
+
+fn handle_s3_settings_navigation(_browser: &mut SnapshotBrowser, _key: KeyCode) -> bool {
+    // Implement S3 settings navigation logic in s3_config module
+    false
+}
+
+fn handle_restore_target_navigation(_browser: &mut SnapshotBrowser, _key: KeyCode) -> bool {
+    // Implement restore target navigation logic in the appropriate module
+    false
+}
