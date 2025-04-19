@@ -2,8 +2,8 @@ name: Build and Release
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - 'v*.*.*'  # Only trigger on semver tags, e.g., v1.2.3
 
 jobs:
   build:
@@ -24,31 +24,93 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --verbose
 
-      - name: Build release binary
+      - name: Build Linux binary
         run: cargo build --release --workspace --verbose
 
+      - name: Upload Linux binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: rustored-linux
+          path: target/release/rustored
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Rust
+        uses: actions/setup-rust@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Build macOS binary
+        run: cargo build --release --workspace --verbose
+      - name: Upload macOS binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: rustored-macos
+          path: target/release/rustored
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Rust
+        uses: actions/setup-rust@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Build Windows binary
+        run: cargo build --release --workspace --verbose
+      - name: Upload Windows binary
+        uses: actions/upload-artifact@v3
+        with:
+          name: rustored-windows.exe
+          path: target/release/rustored.exe
+
   release:
-    needs: build
+    needs: [build, build-macos, build-windows]
     runs-on: ubuntu-latest
     steps:
-      - name: Check out code
-        uses: actions/checkout@v3
-
+      - name: Download Linux binary
+        uses: actions/download-artifact@v3
+        with:
+          name: rustored-linux
+          path: ./artifacts
+      - name: Download macOS binary
+        uses: actions/download-artifact@v3
+        with:
+          name: rustored-macos
+          path: ./artifacts
+      - name: Download Windows binary
+        uses: actions/download-artifact@v3
+        with:
+          name: rustored-windows.exe
+          path: ./artifacts
       - name: Create GitHub Release
         id: create_release
-        uses: actions/create-release@v1
+        uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ github.run_number }}
-          release_name: Release v${{ github.run_number }}
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload release binary
-        uses: actions/upload-release-asset@v1
+      - name: Upload Linux binary
+        uses: softprops/action-gh-release@v1
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: target/release/rustored
-          asset_name: rustored
-          asset_content_type: application/octet-stream
+          files: ./artifacts/rustored
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload macOS binary
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ./artifacts/rustored
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Windows binary
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ./artifacts/rustored.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
