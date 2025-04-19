@@ -25,7 +25,7 @@ impl DatastoreRestoreTarget {
                 println!("[STUB] Would restore {input} to Elasticsearch at {host}, index {index}");
                 Ok(())
             }
-            DatastoreRestoreTarget::Qdrant { host, collection, api_key } => {
+            DatastoreRestoreTarget::Qdrant { host, collection, api_key: _ } => {
                 // TODO: Implement Qdrant restore logic
                 println!("[STUB] Would restore {input} to Qdrant at {host}, collection {collection}");
                 Ok(())

@@ -2,7 +2,7 @@ use ratatui::{
     backend::Backend,
     layout::{Constraint, Direction, Layout, Alignment, Rect},
     style::{Color, Modifier, Style},
-    text::{Span, Spans, Line},
+    text::{Span, Line},
     widgets::{Block, Borders, List, ListItem, Paragraph, Clear, Tabs},
     Frame,
 };
@@ -47,8 +47,8 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         .constraints(
             [
                 Constraint::Length(3),  // Title
-                Constraint::Length(9),  // S3 Settings
-                Constraint::Length(8),  // PostgreSQL Settings
+                Constraint::Length(9),  // Restore Target & Connection Fields
+                Constraint::Length(8),  // S3 Settings
                 Constraint::Min(10),    // Snapshot List
             ]
             .as_ref(),
@@ -56,26 +56,41 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         .split(f.size());
 
     // Title
-    let title = Paragraph::new("PostgreSQL Snapshot Browser")
+    let title = Paragraph::new("Rustored Snapshot Browser")
         .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
         .alignment(Alignment::Center);
     f.render_widget(title, chunks[0]);
 
+    // Split restore area into tabs and connection field sections
+    let restore_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(1)].as_ref())
+        .split(chunks[1]);
+
     // Restore Target Tabs
-    let titles = ["Postgres", "Elasticsearch", "Qdrant"]
+    let titles: Vec<Line> = ["Postgres", "Elasticsearch", "Qdrant"]
         .iter()
-        .map(|t| Spans::from(Span::raw(*t)))
+        .map(|t| Line::from(Span::raw(*t)))
         .collect();
     let selected = match browser.restore_target {
         crate::ui::models::RestoreTarget::Postgres => 0,
         crate::ui::models::RestoreTarget::Elasticsearch => 1,
         crate::ui::models::RestoreTarget::Qdrant => 2,
     };
+
+    // Tabs at top of restore area
     let tabs = Tabs::new(titles)
         .block(Block::default().borders(Borders::ALL).title("Restore Target"))
         .highlight_style(Style::default().fg(Color::Green))
         .select(selected);
-    f.render_widget(tabs, chunks[1]);
+    f.render_widget(tabs, restore_chunks[0]);
+
+    // Determine block title based on selected datastore
+    let block_title = match browser.restore_target {
+        crate::ui::models::RestoreTarget::Postgres => "PostgreSQL Settings",
+        crate::ui::models::RestoreTarget::Elasticsearch => "Elasticsearch Settings",
+        crate::ui::models::RestoreTarget::Qdrant => "Qdrant Settings",
+    };
 
     // Restore Target Connection Fields
     let mut conn_lines = vec![];
@@ -93,32 +108,24 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
             conn_lines.push(Line::from(format!("API Key: {}", browser.qdrant_api_key.as_deref().unwrap_or(""))));
         },
     }
-    let conn_para = Paragraph::new(conn_lines).style(Style::default().fg(Color::Gray));
-    f.render_widget(conn_para, chunks[2]);
+    // Datastore connection fields within a dynamic titled block
+    let conn_block = Paragraph::new(conn_lines)
+        .block(Block::default().borders(Borders::ALL).title(block_title))
+        .style(Style::default().fg(Color::Gray));
+    f.render_widget(conn_block, restore_chunks[1]);
 
     // S3 Settings
     let s3_settings_block = Block::default()
         .title("S3 Settings")
         .borders(Borders::ALL);
-    f.render_widget(s3_settings_block, chunks[3]);
+    f.render_widget(s3_settings_block, chunks[2]);
 
     // S3 Settings Content
     let s3_settings_chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
-        .constraints(
-            [
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-            ]
-            .as_ref(),
-        )
-        .split(chunks[1]);
+        .constraints(vec![Constraint::Length(1); 7])
+        .split(chunks[2]);
 
     // Bucket
     let bucket_style = if browser.focus == FocusField::Bucket {
@@ -256,95 +263,6 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     let path_style = Paragraph::new(path_style_text)
         .style(path_style_style);
     f.render_widget(path_style, s3_settings_chunks[6]);
-
-    // PostgreSQL Settings
-    let pg_settings_block = Block::default()
-        .title("PostgreSQL Settings")
-        .borders(Borders::ALL);
-    f.render_widget(pg_settings_block, chunks[2]);
-
-    // PostgreSQL Settings Content
-    let pg_settings_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(1)
-        .constraints(
-            [
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Length(1),
-            ]
-            .as_ref(),
-        )
-        .split(chunks[2]);
-
-    // Host
-    let host_style = if browser.focus == FocusField::PgHost {
-        Style::default().fg(Color::Yellow)
-    } else {
-        Style::default()
-    };
-    let host_text = format!("Host: {}", browser.pg_config.host.as_ref().unwrap_or(&String::new()));
-    let host = Paragraph::new(host_text)
-        .style(host_style);
-    f.render_widget(host, pg_settings_chunks[0]);
-
-    // Port
-    let port_style = if browser.focus == FocusField::PgPort {
-        Style::default().fg(Color::Yellow)
-    } else {
-        Style::default()
-    };
-    let port_text = format!("Port: {}", browser.pg_config.port.map(|p| p.to_string()).unwrap_or_default());
-    let port = Paragraph::new(port_text)
-        .style(port_style);
-    f.render_widget(port, pg_settings_chunks[1]);
-
-    // Username
-    let username_style = if browser.focus == FocusField::PgUsername {
-        Style::default().fg(Color::Yellow)
-    } else {
-        Style::default()
-    };
-    let username_text = format!("Username: {}", browser.pg_config.username.as_ref().unwrap_or(&String::new()));
-    let username = Paragraph::new(username_text)
-        .style(username_style);
-    f.render_widget(username, pg_settings_chunks[2]);
-
-    // Password
-    let password_style = if browser.focus == FocusField::PgPassword {
-        Style::default().fg(Color::Yellow)
-    } else {
-        Style::default()
-    };
-    let password_text = format!("Password: {}", if browser.pg_config.password.is_some() { "********" } else { "" });
-    let password = Paragraph::new(password_text)
-        .style(password_style);
-    f.render_widget(password, pg_settings_chunks[3]);
-
-    // SSL
-    let ssl_style = if browser.focus == FocusField::PgSsl {
-        Style::default().fg(Color::Yellow)
-    } else {
-        Style::default()
-    };
-    let ssl_text = format!("SSL: {}", browser.pg_config.use_ssl);
-    let ssl = Paragraph::new(ssl_text)
-        .style(ssl_style);
-    f.render_widget(ssl, pg_settings_chunks[4]);
-
-    // Database
-    let db_style = if browser.focus == FocusField::PgDbName {
-        Style::default().fg(Color::Yellow)
-    } else {
-        Style::default()
-    };
-    let db_text = format!("Database: {}", browser.pg_config.db_name.as_ref().unwrap_or(&String::new()));
-    let db = Paragraph::new(db_text)
-        .style(db_style);
-    f.render_widget(db, pg_settings_chunks[5]);
 
     // Snapshot List
     let snapshot_style = if browser.focus == FocusField::SnapshotList {
@@ -514,20 +432,20 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
             let area = centered_rect(60, 7, f.size());
             // Clear the area where the popup will be rendered
             f.render_widget(ratatui::widgets::Clear, area);
-            
+
             // Create a progress bar
             let _progress_percent = (*progress * 100.0) as u16;
             let progress_bar_width = 50;
             let filled_width = (progress_bar_width as f32 * *progress) as usize;
             let empty_width = progress_bar_width as usize - filled_width;
-            
+
             let progress_bar = format!(
                 "[{}{}] {:.1}%",
                 "=".repeat(filled_width),
                 " ".repeat(empty_width),
                 *progress * 100.0
             );
-            
+
             let popup = Paragraph::new(vec![
                 Line::from(vec![Span::raw(format!("Restoring database from: {}", snapshot.key))]),
                 Line::from(vec![]),
@@ -565,12 +483,12 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
             FocusField::AccessKeyId => s3_settings_chunks[4],
             FocusField::SecretAccessKey => s3_settings_chunks[5],
             FocusField::PathStyle => s3_settings_chunks[6],
-            FocusField::PgHost => pg_settings_chunks[0],
-            FocusField::PgPort => pg_settings_chunks[1],
-            FocusField::PgUsername => pg_settings_chunks[2],
-            FocusField::PgPassword => pg_settings_chunks[3],
-            FocusField::PgSsl => pg_settings_chunks[4],
-            FocusField::PgDbName => pg_settings_chunks[5],
+            FocusField::PgHost => return,
+            FocusField::PgPort => return,
+            FocusField::PgUsername => return,
+            FocusField::PgPassword => return,
+            FocusField::PgSsl => return,
+            FocusField::PgDbName => return,
             _ => return,
         };
 
@@ -594,12 +512,12 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
             FocusField::AccessKeyId => browser.input_buffer.clone(),
             FocusField::SecretAccessKey => browser.input_buffer.clone(),
             FocusField::PathStyle => browser.input_buffer.clone(),
-            FocusField::PgHost => browser.input_buffer.clone(),
-            FocusField::PgPort => browser.input_buffer.clone(),
-            FocusField::PgUsername => browser.input_buffer.clone(),
-            FocusField::PgPassword => browser.input_buffer.clone(),
-            FocusField::PgSsl => browser.input_buffer.clone(),
-            FocusField::PgDbName => browser.input_buffer.clone(),
+            FocusField::PgHost => return,
+            FocusField::PgPort => return,
+            FocusField::PgUsername => return,
+            FocusField::PgPassword => return,
+            FocusField::PgSsl => return,
+            FocusField::PgDbName => return,
             _ => String::new(),
         };
 
@@ -612,12 +530,12 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
             FocusField::AccessKeyId => "Access Key ID",
             FocusField::SecretAccessKey => "Secret Access Key",
             FocusField::PathStyle => "Path Style",
-            FocusField::PgHost => "Host",
-            FocusField::PgPort => "Port",
-            FocusField::PgUsername => "Username",
-            FocusField::PgPassword => "Password",
-            FocusField::PgSsl => "SSL",
-            FocusField::PgDbName => "Database Name",
+            FocusField::PgHost => return,
+            FocusField::PgPort => return,
+            FocusField::PgUsername => return,
+            FocusField::PgPassword => return,
+            FocusField::PgSsl => return,
+            FocusField::PgDbName => return,
             _ => "",
         };
 
