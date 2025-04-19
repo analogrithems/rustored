@@ -17,6 +17,24 @@ pub struct S3Config {
 }
 
 impl S3Config {
+    // Initialize with default values
+    pub fn new() -> Self {
+        // Load environment variables
+        let env_s3_config = crate::config::load_s3_config();
+
+        // Set values from environment variables
+        Self {
+            bucket: env_s3_config.bucket,
+            region: env_s3_config.region,
+            prefix: env_s3_config.prefix,
+            endpoint_url: env_s3_config.endpoint_url,
+            access_key_id: env_s3_config.access_key_id,
+            secret_access_key: env_s3_config.secret_access_key,
+            path_style: env_s3_config.path_style,
+            error_message: None,
+        }
+    }
+
     /// Get all focus fields for S3 settings
     pub fn focus_fields() -> &'static [super::FocusField] {
         use super::FocusField;
@@ -64,17 +82,17 @@ impl S3Config {
     /// Check if a focus field belongs to this config
     pub fn contains_field(field: super::FocusField) -> bool {
         use super::FocusField;
-        matches!(field, 
-            FocusField::Bucket | 
-            FocusField::Region | 
+        matches!(field,
+            FocusField::Bucket |
+            FocusField::Region |
             FocusField::Prefix |
-            FocusField::EndpointUrl | 
+            FocusField::EndpointUrl |
             FocusField::AccessKeyId |
-            FocusField::SecretAccessKey | 
+            FocusField::SecretAccessKey |
             FocusField::PathStyle
         )
     }
-    
+
     /// Verify S3 settings are valid
     pub fn verify_settings(&self) -> Result<()> {
         if self.bucket.is_empty() {
@@ -99,11 +117,11 @@ impl S3Config {
 
         Ok(())
     }
-    
+
     /// Initialize S3 client with current settings
     pub fn create_client(&self) -> Result<S3Client> {
         self.verify_settings()?;
-        
+
         let credentials = Credentials::new(
             &self.access_key_id,
             &self.secret_access_key,
@@ -134,7 +152,7 @@ impl S3Config {
         let config = config_builder.build();
         Ok(S3Client::from_conf(config))
     }
-    
+
     /// Test S3 connection and return success or error
     pub async fn test_connection(&self, popup_state_setter: impl FnOnce(PopupState)) -> Result<()> {
         let client = match self.create_client() {
@@ -145,7 +163,7 @@ impl S3Config {
                 return Err(anyhow!(error_msg));
             }
         };
-        
+
         match client.list_buckets().send().await {
             Ok(resp) => {
                 let buckets = resp.buckets();

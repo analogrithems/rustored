@@ -10,19 +10,21 @@ use std::io::stdout;
 use std::time::Duration;
 use tokio::time::sleep;
 use tokio::io::AsyncWriteExt;
-use random_word::Lang;
+// Import removed: use random_word::Lang;
 
 use crate::ui::models::{S3Config, PostgresConfig, ElasticsearchConfig, QdrantConfig, BackupMetadata, PopupState, InputMode, FocusField, RestoreTarget};
 
 /// Snapshot browser for managing S3 backups
 pub struct SnapshotBrowser {
     pub config: S3Config,
-    pub pg_config: PostgresConfig,
     pub s3_client: Option<S3Client>,
     pub restore_target: crate::ui::models::RestoreTarget,
-    pub es_host: Option<String>,
-    pub es_index: Option<String>,
-    pub qdrant_api_key: Option<String>,
+
+    // Config objects for different restore targets
+    pub postgres_config: Option<PostgresConfig>,
+    pub elasticsearch_config: Option<ElasticsearchConfig>,
+    pub qdrant_config: Option<QdrantConfig>,
+
     pub snapshots: Vec<BackupMetadata>,
     pub selected_idx: Option<usize>,
     pub input_mode: InputMode,
@@ -36,7 +38,9 @@ impl std::fmt::Debug for SnapshotBrowser {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SnapshotBrowser")
             .field("config", &self.config)
-            .field("pg_config", &self.pg_config)
+            .field("postgres_config", &self.postgres_config)
+            .field("elasticsearch_config", &self.elasticsearch_config)
+            .field("qdrant_config", &self.qdrant_config)
             .field("s3_client", &"<S3Client>")
             .field("snapshots", &self.snapshots)
             .field("selected_idx", &self.selected_idx)
@@ -56,24 +60,32 @@ impl SnapshotBrowser {
     }
 
     pub async fn test_pg_connection(&mut self) -> Result<Option<tokio_postgres::Client>> {
+        // Create PostgresConfig if it doesn't exist
+        if self.postgres_config.is_none() {
+            self.postgres_config = Some(PostgresConfig::default());
+        }
+
         // Use the test_connection method from PostgresConfig
-        self.pg_config.test_connection(|state| self.popup_state = state).await
+        if let Some(pg_config) = &self.postgres_config {
+            pg_config.test_connection(|state| self.popup_state = state).await
+        } else {
+            Err(anyhow!("PostgreSQL configuration is not available"))
+        }
     }
 
 
 
-pub fn new(config: S3Config, pg_config: PostgresConfig) -> Self {
+pub fn new(config: S3Config) -> Self {
         Self {
             config,
-            pg_config,
             s3_client: None,
             snapshots: Vec::new(),
             selected_idx: None,
             input_mode: InputMode::Normal,
-        restore_target: RestoreTarget::Postgres,
-        es_host: None,
-        es_index: None,
-        qdrant_api_key: None,
+            restore_target: RestoreTarget::Postgres,
+            postgres_config: Some(PostgresConfig::default()),
+            elasticsearch_config: None,
+            qdrant_config: None,
             input_buffer: String::new(),
             focus: FocusField::SnapshotList,
             popup_state: PopupState::Hidden,
@@ -291,123 +303,24 @@ pub fn new(config: S3Config, pg_config: PostgresConfig) -> Self {
         }
     }
 
-    /// Restore a database from a downloaded snapshot file
+    /// Restore a database from a downloaded snapshot file using the RestoreBrowser
     pub async fn restore_snapshot<B: Backend>(&mut self, snapshot: &BackupMetadata, terminal: &mut Terminal<B>, file_path: &str) -> Result<()> {
-        // Validate PostgreSQL settings
-        if self.pg_config.host.is_none() || self.pg_config.host.as_ref().unwrap().is_empty() {
-            self.popup_state = PopupState::Error("PostgreSQL host is required".to_string());
-            return Err(anyhow!("PostgreSQL host is required"));
-        }
+        // Create a RestoreBrowser with the current configuration
+        let mut restore_browser = crate::ui::restore_browser::RestoreBrowser::new(
+            self.restore_target.clone(),
+            self.postgres_config.clone(),
+            self.elasticsearch_config.clone(),
+            self.qdrant_config.clone(),
+        );
 
-        if self.pg_config.port.is_none() {
-            self.popup_state = PopupState::Error("PostgreSQL port is required".to_string());
-            return Err(anyhow!("PostgreSQL port is required"));
-        }
+        // Delegate the restore operation to the RestoreBrowser
+        let result = restore_browser.restore_snapshot(snapshot, terminal, file_path).await;
 
-        if self.pg_config.username.is_none() || self.pg_config.username.as_ref().unwrap().is_empty() {
-            self.popup_state = PopupState::Error("PostgreSQL username is required".to_string());
-            return Err(anyhow!("PostgreSQL username is required"));
-        }
+        // Update our popup state with the result from the RestoreBrowser
+        self.popup_state = restore_browser.popup_state.clone();
 
-        if self.pg_config.db_name.is_none() || self.pg_config.db_name.as_ref().unwrap().is_empty() {
-            self.popup_state = PopupState::Error("PostgreSQL database name is required".to_string());
-            return Err(anyhow!("PostgreSQL database name is required"));
-        }
-
-        // Start restore operation
-        self.popup_state = PopupState::Restoring(snapshot.clone(), 0.0);
-        terminal.draw(|f| crate::ui::renderer::ui::<B>(f, self))?;
-
-        // Use a separate thread for the restore operation to avoid blocking the UI
-        let host = self.pg_config.host.as_ref().unwrap().clone();
-        let port = self.pg_config.port.unwrap();
-        let username = self.pg_config.username.clone();
-        let password = self.pg_config.password.clone();
-
-        let use_ssl = self.pg_config.use_ssl;
-        let file_path_owned = file_path.to_string();
-
-        let pgclient = self.test_pg_connection().await?;
-
-        let new_dbname = format!("{}-restored", random_word::get(Lang::En));
-        let create_restore_db = crate::postgres::create_database(&pgclient.unwrap(), &new_dbname).await;
-
-        match create_restore_db {
-            Ok(_) => {
-                log::info!("Successfully created restore database: {}", new_dbname);
-            },
-            Err(e) => {
-                let error_msg = format!("Failed to create restore database: {}", e);
-                self.popup_state = PopupState::Error(error_msg.clone());
-                return Err(anyhow!(error_msg));
-            }
-        }
-        // Spawn a blocking task to handle the restore operation
-        let restore_handle = tokio::task::spawn_blocking(move || {
-            // Call the restore_database function from the backup module
-            let result = crate::backup::restore_database(
-                &new_dbname,
-                &file_path_owned,
-                &host,
-                port,
-                username.as_deref(),
-                password.as_deref(),
-                use_ssl,
-            );
-            result
-        });
-
-        // Send completion signal (100% progress) in the main async context after restore completes
-        // Update the UI with progress while the restore is running
-        let mut progress = 0.0;
-        // Only update progress bar at the end (no fine-grained progress for pg_restore)
-        while progress < 1.0 {
-            // Check for user input (like ESC key) during restore
-            if crossterm::event::poll(std::time::Duration::from_millis(0)).unwrap_or(false) {
-                if let crossterm::event::Event::Key(key) = crossterm::event::read().unwrap_or(crossterm::event::Event::Key(crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Null, crossterm::event::KeyModifiers::NONE))) {
-                    if key.code == crossterm::event::KeyCode::Esc {
-                        log::debug!("User pressed ESC during restore, but restore cannot be cancelled");
-                        // We don't allow cancelling restore operations as they can leave the database in an inconsistent state
-                    }
-                }
-            }
-            // Update the UI
-            self.popup_state = PopupState::Restoring(snapshot.clone(), progress);
-            terminal.draw(|f| crate::ui::renderer::ui::<B>(f, self))?;
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            // For now, break after a short wait and update progress to 1.0 when done
-            break;
-        }
-        // Wait for the restore operation to complete
-        match restore_handle.await {
-            Ok(inner_result) => {
-                progress = 1.0;
-                self.popup_state = PopupState::Restoring(snapshot.clone(), progress);
-                terminal.draw(|f| crate::ui::renderer::ui::<B>(f, self))?;
-                match inner_result {
-                    Ok(_) => {
-                        log::info!("pg_restore completed successfully");
-                        self.popup_state = PopupState::Success("pg_restore completed successfully".to_string());
-                    },
-                    Err(e) => {
-                        log::error!("pg_restore failed: {}", e);
-                        self.popup_state = PopupState::Error(format!("pg_restore failed: {}", e));
-                        return Err(anyhow!("pg_restore task failed: {}", e));
-                    }
-                }
-            },
-            Err(e) => {
-                log::error!("pg_restore task panicked: {}", e);
-                self.popup_state = PopupState::Error(format!("pg_restore task failed: {}", e));
-                return Err(anyhow!("pg_restore_handler task issues: {}", e));
-            }
-        }
-
-        // Show final status message
-        terminal.draw(|f| crate::ui::renderer::ui::<B>(f, self))?;
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-        Ok(())
+        // Return the result
+        result
     }
 }
 
@@ -420,7 +333,7 @@ pub async fn run_tui(
     access_key_id: Option<String>,
     secret_access_key: Option<String>,
     path_style: bool,
-) -> Result<Option<String>> {
+) -> Result<Option<bool>> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = stdout();
@@ -430,7 +343,6 @@ pub async fn run_tui(
 
     // Load configuration from environment variables
     let env_s3_config = crate::config::load_s3_config();
-    let env_pg_config = crate::config::load_postgres_config();
 
     // Create app state with CLI args taking precedence over env vars
     let config = S3Config {
@@ -444,8 +356,8 @@ pub async fn run_tui(
         error_message: None,
     };
 
-    let pg_config = env_pg_config;
-    let browser = SnapshotBrowser::new(config, pg_config);
+    // Create browser with S3 config only
+    let browser = SnapshotBrowser::new(config);
 
     // Run app
     let res = run_app(&mut terminal, browser).await;
@@ -459,8 +371,7 @@ pub async fn run_tui(
 }
 
 /// Run the application
-#[allow(unreachable_code)]
-pub async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut browser: SnapshotBrowser) -> Result<Option<String>> {
+pub async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut browser: SnapshotBrowser) -> Result<Option<bool>> {
     // Initial load of snapshots
     if let Err(e) = browser.load_snapshots().await {
         debug!("Failed to load snapshots: {}", e);
@@ -518,14 +429,28 @@ pub async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut browser: Snapsh
                                 if S3Config::contains_field(browser.focus) {
                                     browser.config.set_field_value(browser.focus, browser.input_buffer.clone());
                                 } else if PostgresConfig::contains_field(browser.focus) {
-                                    browser.pg_config.set_field_value(browser.focus, browser.input_buffer.clone());
+                                    // Create PostgresConfig if it doesn't exist
+                                    if browser.postgres_config.is_none() {
+                                        browser.postgres_config = Some(PostgresConfig::default());
+                                    }
+                                    if let Some(pg_config) = &mut browser.postgres_config {
+                                        pg_config.set_field_value(browser.focus, browser.input_buffer.clone());
+                                    }
                                 } else if ElasticsearchConfig::contains_field(browser.focus) {
-                                    // For Elasticsearch and Qdrant, we need to handle the shared fields
-                                    match browser.focus {
-                                        FocusField::EsHost => browser.es_host = Some(browser.input_buffer.clone()),
-                                        FocusField::EsIndex => browser.es_index = Some(browser.input_buffer.clone()),
-                                        FocusField::QdrantApiKey => browser.qdrant_api_key = Some(browser.input_buffer.clone()),
-                                        _ => {}
+                                    // Create ElasticsearchConfig if it doesn't exist
+                                    if browser.elasticsearch_config.is_none() {
+                                        browser.elasticsearch_config = Some(ElasticsearchConfig::default());
+                                    }
+                                    if let Some(es_config) = &mut browser.elasticsearch_config {
+                                        es_config.set_field_value(browser.focus, browser.input_buffer.clone());
+                                    }
+                                } else if QdrantConfig::contains_field(browser.focus) {
+                                    // Create QdrantConfig if it doesn't exist
+                                    if browser.qdrant_config.is_none() {
+                                        browser.qdrant_config = Some(QdrantConfig::default());
+                                    }
+                                    if let Some(qdrant_config) = &mut browser.qdrant_config {
+                                        qdrant_config.set_field_value(browser.focus, browser.input_buffer.clone());
                                     }
                                 }
                                 browser.input_buffer.clear();
@@ -594,17 +519,32 @@ pub async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut browser: Snapsh
                                     // Start editing PostgreSQL settings
                                     field if PostgresConfig::contains_field(field) => {
                                         browser.input_mode = InputMode::Editing;
-                                        browser.input_buffer = browser.pg_config.get_field_value(browser.focus);
+                                        if browser.postgres_config.is_none() {
+                                            browser.postgres_config = Some(PostgresConfig::default());
+                                        }
+                                        browser.input_buffer = browser.postgres_config.as_ref()
+                                            .map(|pg| pg.get_field_value(browser.focus))
+                                            .unwrap_or_default();
                                     }
-                                    // Start editing Elasticsearch or Qdrant settings
-                                    field if ElasticsearchConfig::contains_field(field) || QdrantConfig::contains_field(field) => {
+                                    // Start editing Elasticsearch settings
+                                    field if ElasticsearchConfig::contains_field(field) => {
                                         browser.input_mode = InputMode::Editing;
-                                        browser.input_buffer = match browser.focus {
-                                            FocusField::EsHost => browser.es_host.clone().unwrap_or_default(),
-                                            FocusField::EsIndex => browser.es_index.clone().unwrap_or_default(),
-                                            FocusField::QdrantApiKey => browser.qdrant_api_key.clone().unwrap_or_default(),
-                                            _ => String::new(),
-                                        };
+                                        if browser.elasticsearch_config.is_none() {
+                                            browser.elasticsearch_config = Some(ElasticsearchConfig::default());
+                                        }
+                                        browser.input_buffer = browser.elasticsearch_config.as_ref()
+                                            .map(|es| es.get_field_value(browser.focus))
+                                            .unwrap_or_default();
+                                    }
+                                    // Start editing Qdrant settings
+                                    field if QdrantConfig::contains_field(field) => {
+                                        browser.input_mode = InputMode::Editing;
+                                        if browser.qdrant_config.is_none() {
+                                            browser.qdrant_config = Some(QdrantConfig::default());
+                                        }
+                                        browser.input_buffer = browser.qdrant_config.as_ref()
+                                            .map(|q| q.get_field_value(browser.focus))
+                                            .unwrap_or_default();
                                     }
                                     _ => { }
                                 }
@@ -648,7 +588,6 @@ pub async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut browser: Snapsh
             browser.popup_state = PopupState::Hidden;
         }
     }
-    Ok(None)
 }
 
 fn handle_snapshot_list_navigation(browser: &mut SnapshotBrowser, key: KeyCode) -> bool {
@@ -670,7 +609,7 @@ fn handle_snapshot_list_navigation(browser: &mut SnapshotBrowser, key: KeyCode) 
 fn handle_s3_settings_navigation(browser: &mut SnapshotBrowser, key: KeyCode) -> bool {
     // Get fields for S3 settings using the model's method
     let fields = S3Config::focus_fields();
-    
+
     if let Some(idx) = fields.iter().position(|f| browser.focus == *f) {
         match key {
             KeyCode::Up => {
@@ -691,7 +630,7 @@ fn handle_s3_settings_navigation(browser: &mut SnapshotBrowser, key: KeyCode) ->
 fn handle_restore_target_navigation(browser: &mut SnapshotBrowser, key: KeyCode) -> bool {
     // Get fields for current restore target using the model's method
     let fields = browser.restore_target.focus_fields();
-    
+
     if browser.focus == FocusField::RestoreTarget {
         match key {
             KeyCode::Down => { browser.focus = fields[0]; true },

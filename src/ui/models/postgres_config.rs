@@ -16,6 +16,22 @@ pub struct PostgresConfig {
 }
 
 impl PostgresConfig {
+    // Initialize with default values
+    pub fn new() -> Self {
+        // Load environment variables
+        let env_pg_config = crate::config::load_postgres_config();
+
+        // Set values from environment variables
+        Self {
+            host: env_pg_config.host,
+            port: env_pg_config.port,
+            username: env_pg_config.username,
+            password: env_pg_config.password,
+            use_ssl: env_pg_config.use_ssl,
+            db_name: env_pg_config.db_name,
+        }
+    }
+
     /// Get all focus fields for PostgreSQL settings
     pub fn focus_fields() -> &'static [super::FocusField] {
         use super::FocusField;
@@ -60,16 +76,16 @@ impl PostgresConfig {
     /// Check if a focus field belongs to this config
     pub fn contains_field(field: super::FocusField) -> bool {
         use super::FocusField;
-        matches!(field, 
-            FocusField::PgHost | 
-            FocusField::PgPort | 
+        matches!(field,
+            FocusField::PgHost |
+            FocusField::PgPort |
             FocusField::PgUsername |
-            FocusField::PgPassword | 
+            FocusField::PgPassword |
             FocusField::PgSsl |
             FocusField::PgDbName
         )
     }
-    
+
     /// Test PostgreSQL connection and return a client if successful
     pub async fn test_connection(&self, popup_state_setter: impl FnOnce(PopupState)) -> Result<Option<tokio_postgres::Client>> {
         // Validate PostgreSQL settings
@@ -97,13 +113,13 @@ impl PostgresConfig {
         config.port(self.port.unwrap());
         config.user(self.username.as_ref().unwrap());
         config.password(&self.password.as_ref().unwrap_or(&String::new()));
-        
+
         let result = if self.use_ssl {
             postgres::connect_ssl(&config, false, None).await
         } else {
             postgres::connect_no_ssl(&config).await
         };
-        
+
         match result {
             Ok(client) => {
                 info!("Successfully connected to PostgreSQL");
