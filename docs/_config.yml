@@ -1,0 +1,29 @@
+theme: jekyll-theme-cayman
+title: Rustored Documentation
+description: Documentation for the Rustored database backup and restore tool
+show_downloads: true
+github:
+  repository_url: https://github.com/analogrithems/rustored
+  is_project_page: true
+  owner_name: analogrithems
+  repository_name: rustored
+
+# Enable relative links
+relative_links:
+  enabled: true
+  collections: true
+
+# Plugins
+plugins:
+  - jekyll-relative-links
+  - jekyll-seo-tag
+
+# Exclude files from processing
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - vendor/bundle/
+  - vendor/cache/
+  - vendor/gems/
+  - vendor/ruby/
