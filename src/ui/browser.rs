@@ -717,7 +717,14 @@ pub async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut browser: Snapsh
                         KeyCode::Tab => {
                             browser.focus = match browser.focus {
                                 FocusField::SnapshotList => FocusField::RestoreTarget,
-                                FocusField::RestoreTarget => FocusField::EsHost,
+                                FocusField::RestoreTarget => {
+                                    // go to first field for selected datastore
+                                    match browser.restore_target {
+                                        crate::ui::models::RestoreTarget::Postgres => crate::ui::models::FocusField::PgHost,
+                                        crate::ui::models::RestoreTarget::Elasticsearch => crate::ui::models::FocusField::EsHost,
+                                        crate::ui::models::RestoreTarget::Qdrant => crate::ui::models::FocusField::QdrantApiKey,
+                                    }
+                                }
                                 FocusField::EsHost => FocusField::EsIndex,
                                 FocusField::EsIndex => FocusField::QdrantApiKey,
                                 FocusField::QdrantApiKey => FocusField::Bucket,
@@ -766,6 +773,19 @@ pub async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut browser: Snapsh
                         KeyCode::Char('b') if browser.input_mode == InputMode::Normal => browser.focus = FocusField::Bucket,
                         KeyCode::Char('R') if browser.input_mode == InputMode::Normal => browser.focus = FocusField::Region,
                         KeyCode::Char('x') if browser.input_mode == InputMode::Normal => browser.focus = FocusField::Prefix,
+                        // Restore Target hotkeys
+                        KeyCode::Char('P') if browser.input_mode == InputMode::Normal => {
+                            browser.restore_target = crate::ui::models::RestoreTarget::Postgres;
+                            browser.focus = crate::ui::models::FocusField::PgHost;
+                        },
+                        KeyCode::Char('E') if browser.input_mode == InputMode::Normal => {
+                            browser.restore_target = crate::ui::models::RestoreTarget::Elasticsearch;
+                            browser.focus = crate::ui::models::FocusField::EsHost;
+                        },
+                        KeyCode::Char('Q') if browser.input_mode == InputMode::Normal => {
+                            browser.restore_target = crate::ui::models::RestoreTarget::Qdrant;
+                            browser.focus = crate::ui::models::FocusField::QdrantApiKey;
+                        },
                         // Navigation shortcuts
                         KeyCode::Down | KeyCode::Char('j') if browser.focus == FocusField::SnapshotList => {
                             browser.next();

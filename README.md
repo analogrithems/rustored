@@ -1,7 +1,8 @@
-# Rustored
+# Rustored v0.1.0 (2025-04-18)
 
+![Version](https://img.shields.io/badge/version-0.1.0-blue)
 ![Rustored Logo](logo.png)
-```[✓] Dont panic - your data is safe.```
+[*] — Dont panic, your data is safe!
 
 Rustored is a terminal-based CLI and TUI application for downloading and restoring snapshots from AWS S3 to various datastores including Postgres, Elasticsearch, and Qdrant.
 
@@ -64,4 +65,4 @@ Contributions welcome! Each datastore restore implementation lives in its own mo
 
 ## License
 
-MIT © Your Name
+MIT Your Name

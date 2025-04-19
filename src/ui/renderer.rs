@@ -92,27 +92,68 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         crate::ui::models::RestoreTarget::Qdrant => "Qdrant Settings",
     };
 
-    // Restore Target Connection Fields
-    let mut conn_lines = vec![];
-    match browser.restore_target {
-        crate::ui::models::RestoreTarget::Postgres => {
-            conn_lines.push(Line::from("(No extra fields for Postgres)"));
-        },
-        crate::ui::models::RestoreTarget::Elasticsearch => {
-            conn_lines.push(Line::from(format!("Elasticsearch Host: {}", browser.es_host.as_deref().unwrap_or(""))));
-            conn_lines.push(Line::from(format!("Index: {}", browser.es_index.as_deref().unwrap_or(""))));
-        },
-        crate::ui::models::RestoreTarget::Qdrant => {
-            conn_lines.push(Line::from(format!("Qdrant Host: {}", browser.es_host.as_deref().unwrap_or(""))));
-            conn_lines.push(Line::from(format!("Collection: {}", browser.es_index.as_deref().unwrap_or(""))));
-            conn_lines.push(Line::from(format!("API Key: {}", browser.qdrant_api_key.as_deref().unwrap_or(""))));
-        },
-    }
     // Datastore connection fields within a dynamic titled block
-    let conn_block = Paragraph::new(conn_lines)
-        .block(Block::default().borders(Borders::ALL).title(block_title))
-        .style(Style::default().fg(Color::Gray));
-    f.render_widget(conn_block, restore_chunks[1]);
+    f.render_widget(Block::default().borders(Borders::ALL).title(block_title), restore_chunks[1]);
+    if browser.restore_target == crate::ui::models::RestoreTarget::Postgres {
+        // Editable PostgresConfig fields
+        let field_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(1)
+            .constraints(vec![Constraint::Length(1); 6])
+            .split(restore_chunks[1]);
+        let fields = [
+            (crate::ui::models::FocusField::PgHost, format!("Host: {}", browser.pg_config.host.as_deref().unwrap_or(""))),
+            (crate::ui::models::FocusField::PgPort, format!("Port: {}", browser.pg_config.port.map(|p| p.to_string()).unwrap_or_default())),
+            (crate::ui::models::FocusField::PgUsername, format!("Username: {}", browser.pg_config.username.as_deref().unwrap_or(""))),
+            (crate::ui::models::FocusField::PgPassword, format!("Password: {}", if browser.pg_config.password.is_some() { "********" } else { "" })),
+            (crate::ui::models::FocusField::PgSsl, format!("SSL: {}", browser.pg_config.use_ssl)),
+            (crate::ui::models::FocusField::PgDbName, format!("Database: {}", browser.pg_config.db_name.as_deref().unwrap_or(""))),
+        ];
+        for (i, (focus_field, text)) in fields.iter().enumerate() {
+            let style = if browser.focus == *focus_field {
+                if browser.input_mode == crate::ui::models::InputMode::Editing {
+                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Yellow)
+                }
+            } else {
+                Style::default()
+            };
+            let content = if browser.focus == *focus_field && browser.input_mode == crate::ui::models::InputMode::Editing {
+                browser.input_buffer.clone()
+            } else {
+                text.clone()
+            };
+            let para = Paragraph::new(content).style(style);
+            f.render_widget(para, field_chunks[i]);
+        }
+    } else {
+        let mut conn_lines = vec![];
+        match browser.restore_target {
+            crate::ui::models::RestoreTarget::Postgres => {
+                // Postgres connection fields
+                conn_lines.push(Line::from(format!("Host: {}", browser.pg_config.host.as_deref().unwrap_or(""))));
+                conn_lines.push(Line::from(format!("Port: {}", browser.pg_config.port.map(|p| p.to_string()).unwrap_or_default())));
+                conn_lines.push(Line::from(format!("Username: {}", browser.pg_config.username.as_deref().unwrap_or(""))));
+                conn_lines.push(Line::from(format!("Password: {}", if browser.pg_config.password.is_some() { "********" } else { "" })));
+                conn_lines.push(Line::from(format!("SSL: {}", browser.pg_config.use_ssl)));
+                conn_lines.push(Line::from(format!("Database: {}", browser.pg_config.db_name.as_deref().unwrap_or(""))));
+            },
+            crate::ui::models::RestoreTarget::Elasticsearch => {
+                conn_lines.push(Line::from(format!("Elasticsearch Host: {}", browser.es_host.as_deref().unwrap_or(""))));
+                conn_lines.push(Line::from(format!("Index: {}", browser.es_index.as_deref().unwrap_or(""))));
+            },
+            crate::ui::models::RestoreTarget::Qdrant => {
+                conn_lines.push(Line::from(format!("Qdrant Host: {}", browser.es_host.as_deref().unwrap_or(""))));
+                conn_lines.push(Line::from(format!("Collection: {}", browser.es_index.as_deref().unwrap_or(""))));
+                conn_lines.push(Line::from(format!("API Key: {}", browser.qdrant_api_key.as_deref().unwrap_or(""))));
+            },
+        }
+        let conn_block = Paragraph::new(conn_lines)
+            .block(Block::default().borders(Borders::ALL).title(block_title))
+            .style(Style::default().fg(Color::Gray));
+        f.render_widget(conn_block, restore_chunks[1]);
+    }
 
     // S3 Settings
     let s3_settings_block = Block::default()
