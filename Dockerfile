@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- Build Stage ----
-FROM rust:1.77-slim as builder
+FROM rust:1.85.1-slim as builder
 WORKDIR /app
 COPY . .
 RUN cargo build --release --locked
