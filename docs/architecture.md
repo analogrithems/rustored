@@ -63,4 +63,4 @@ Each configuration model now has a `new()` method that loads default values from
 
 ## Error Handling
 
-Errors are handled using the `anyhow` crate and displayed to the user via popup messages in the TUI.
+Errors are handled using the `anyhow` crate and displayed to the user via popup messages in the TUI or in the `rustored.log`
