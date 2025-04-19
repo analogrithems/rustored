@@ -1,3 +1,5 @@
+<!-- markdownlint-disable MD034 -->
+
 # Rustored v0.1.0 (2025-04-18)
 
 ![Version](https://img.shields.io/badge/version-0.1.0-blue)
@@ -21,7 +23,7 @@ Prebuilt binaries for Linux, macOS, and Windows are available on the [GitHub Rel
 
 ```bash
 # Example for Linux:
-wget https://github.com/${{ github.repository_owner }}/rustored/releases/latest/download/rustored
+wget <https://github.com/${{ github.repository_owner }}/rustored/releases/latest/download/rustored>
 chmod +x rustored
 ./rustored --help
 ```

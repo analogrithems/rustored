@@ -570,6 +570,7 @@ pub async fn run_tui(
 }
 
 /// Run the application
+#[allow(unreachable_code)]
 pub async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut browser: SnapshotBrowser) -> Result<Option<String>> {
     // Initial load of snapshots
     if let Err(e) = browser.load_snapshots().await {

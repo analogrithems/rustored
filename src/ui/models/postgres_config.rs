@@ -8,3 +8,12 @@ pub struct PostgresConfig {
     pub use_ssl: bool,
     pub db_name: Option<String>,
 }
+
+
+pub struct PostgresRestoreSettings {
+    // Restore Checkboxes
+    pub no_data: bool,
+    pub no_schema: bool,
+    pub no_owner: bool,
+    pub no_comments: bool,
+}
