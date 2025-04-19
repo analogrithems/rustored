@@ -47,6 +47,7 @@ impl RustoredApp {
             secret_access_key: secret_access_key.clone().unwrap_or_default(),
             path_style,
             error_message: None,
+            test_s3_button: false,
         };
         let pg_config = PostgresConfig {
             host: host.clone(),
@@ -229,16 +230,25 @@ impl RustoredApp {
                     }
                 }
                 KeyCode::Esc => {
-                    // Cancel editing
-                    self.input_mode = InputMode::Normal;
-                }
-                KeyCode::Char(c) => {
-                    // Add character
-                    self.input_buffer.push(c);
+                    if self.input_mode == InputMode::Editing {
+                        // Cancel editing
+                        self.input_mode = InputMode::Normal;
+                        self.input_buffer.clear();
+                    } else if matches!(self.popup_state, PopupState::ConfirmRestore(_)) {
+                        // Cancel restore confirmation
+                        self.popup_state = PopupState::Hidden;
+                    } else if matches!(self.popup_state, PopupState::TestingS3 | PopupState::TestS3Result(_)) {
+                        // Dismiss S3 test popup
+                        self.popup_state = PopupState::Hidden;
+                    }
                 }
                 KeyCode::Backspace => {
                     // Remove character
                     self.input_buffer.pop();
+                }
+                KeyCode::Char(c) => {
+                    // Add character
+                    self.input_buffer.push(c);
                 }
                 _ => {}
             }
@@ -399,6 +409,14 @@ impl RustoredApp {
                     // Select snapshot for restore
                     let snapshot = &self.snapshot_browser.snapshots[self.snapshot_browser.selected_index];
                     self.popup_state = PopupState::ConfirmRestore(snapshot.clone());
+                } else if false { // TestS3Button removed
+                    // Test S3 connection when Enter is pressed on the test button
+                    self.popup_state = PopupState::TestingS3;
+                    
+                    // Test connection and update popup state with result
+                    if let Err(e) = self.s3_config.test_connection(|state| self.popup_state = state).await {
+                        debug!("S3 connection test failed: {}", e);
+                    }
                 } else if self.focus != FocusField::SnapshotList {
                     // For any field that's not the snapshot list, enter edit mode
                     self.input_mode = InputMode::Editing;

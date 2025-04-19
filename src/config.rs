@@ -35,6 +35,7 @@ pub fn load_s3_config() -> S3Config {
         secret_access_key: get_env_with_default("S3_SECRET_ACCESS_KEY", ""),
         path_style: get_env_bool("S3_PATH_STYLE", true),
         error_message: None,
+        test_s3_button: false,
     }
 }
 

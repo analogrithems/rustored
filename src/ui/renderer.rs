@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Span, Line},
-    widgets::{Block, Borders, Paragraph, Clear},
+    widgets::{Block, Borders, Paragraph, Clear, Table, Row, Cell},
     Frame,
 };
 
@@ -202,7 +202,7 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
         .constraints(
             [
                 Constraint::Length(3),  // Title
-                Constraint::Length(8),  // S3 Settings & Restore Target (horizontal row)
+                Constraint::Length(15), // S3 Settings & Restore Target (horizontal row)
                 Constraint::Min(10),    // Snapshot List
             ]
             .as_ref(),
@@ -386,62 +386,80 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
             width: chunks[2].width - 2,
             height: chunks[2].height - 2,
         };
-
-        let snapshot_items: Vec<String> = app.snapshot_browser.snapshots
-            .iter()
-            .enumerate()
-            .map(|(i, snapshot)| {
-                let selected = i == app.snapshot_browser.selected_index;
-                let prefix = if selected { "> " } else { "  " };
-                format!("{}{} ({} MB)",
-                    prefix,
-                    snapshot.key,
-                    snapshot.size as f64 / 1024.0 / 1024.0
-                )
-            })
-            .collect();
-
-        let list_height = snapshot_list_area.height as usize;
-        let total_items = snapshot_items.len();
-
-        // Calculate which items to display based on selected index
-        let start_idx = if total_items <= list_height {
-            0
-        } else {
+        
+        // Create table rows from snapshots
+        let visible_snapshots = if app.snapshot_browser.snapshots.len() > snapshot_list_area.height as usize {
+            // Calculate which snapshots to display based on selected index
             let selected = app.snapshot_browser.selected_index;
+            let list_height = snapshot_list_area.height as usize;
             let half_height = list_height / 2;
-
-            if selected < half_height {
+            let total_items = app.snapshot_browser.snapshots.len();
+            
+            let start_idx = if selected < half_height {
                 0
             } else if selected >= total_items - half_height {
                 total_items - list_height
             } else {
                 selected - half_height
-            }
-        };
-
-        let visible_items = &snapshot_items[start_idx..std::cmp::min(start_idx + list_height, total_items)];
-
-        for (i, item) in visible_items.iter().enumerate() {
-            let y = snapshot_list_area.y + i as u16;
-            let is_selected = start_idx + i == app.snapshot_browser.selected_index;
-
-            let item_style = if is_selected {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
             };
-
-            let paragraph = Paragraph::new(item.clone())
-                .style(item_style);
-
-            f.render_widget(paragraph, Rect {
-                x: snapshot_list_area.x,
-                y,
-                width: snapshot_list_area.width,
-                height: 1,
-            });
-        }
+            
+            let end_idx = std::cmp::min(start_idx + list_height, total_items);
+            &app.snapshot_browser.snapshots[start_idx..end_idx]
+        } else {
+            &app.snapshot_browser.snapshots
+        };
+        
+        // Create rows for the table
+        let rows: Vec<Row> = visible_snapshots
+            .iter()
+            .enumerate()
+            .map(|(i, snapshot)| {
+                // Convert AWS DateTime to chrono DateTime
+                let timestamp = snapshot.last_modified;
+                let dt = chrono::DateTime::from_timestamp(timestamp as i64, 0).unwrap_or_default();
+                let formatted_date = dt.format("%Y-%m-%d %H:%M:%S").to_string();
+                let size_mb = snapshot.size as f64 / 1024.0 / 1024.0;
+                let formatted_size = format!("{:.2} MB", size_mb);
+                
+                // Use the full S3 path
+                let full_path = &snapshot.key;
+                
+                // Apply style to the selected row
+                let is_selected = i + (visible_snapshots.as_ptr() as usize - app.snapshot_browser.snapshots.as_ptr() as usize) / std::mem::size_of::<crate::ui::models::BackupMetadata>() == app.snapshot_browser.selected_index;
+                let style = if is_selected {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                
+                Row::new(vec![
+                    Cell::from(full_path.to_string()).style(style),
+                    Cell::from(formatted_size).style(style),
+                    Cell::from(formatted_date).style(style),
+                ])
+            })
+            .collect();
+        
+        // Create header row
+        let header_style = Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD);
+        let header = Row::new(vec![
+            Cell::from("S3 Path").style(header_style),
+            Cell::from("Size").style(header_style),
+            Cell::from("Last Modified").style(header_style),
+        ]);
+        
+        // Create table with header and rows
+        let mut table_rows = vec![header];
+        table_rows.extend(rows);
+        
+        let table = Table::new(table_rows, &[
+                Constraint::Percentage(50),  // Filename takes 50% of the width
+                Constraint::Percentage(15),  // Size takes 15% of the width
+                Constraint::Percentage(35),  // Date takes 35% of the width
+            ])
+            .column_spacing(1);
+            
+        f.render_widget(table, snapshot_list_area);
     } else {
         let no_snapshots_msg = Paragraph::new("No snapshots found")
             .style(Style::default().fg(Color::Gray))
@@ -459,7 +477,7 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
 
     // Show help text at the bottom
     let help_text = match app.input_mode {
-        InputMode::Normal => "Press 'q' to quit, 'e' to edit, 'r' to refresh, Tab to navigate, 1-3 to select restore target, Ctrl+Z to suspend, Enter to select",
+        InputMode::Normal => "Press 'q' to quit, Enter to edit, 'r' to refresh, Tab to navigate, 1-3 to select restore target, Ctrl+Z to suspend",
         InputMode::Editing => "Press Esc to cancel, Enter to save",
     };
     let help_paragraph = Paragraph::new(help_text)

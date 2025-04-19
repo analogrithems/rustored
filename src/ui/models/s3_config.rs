@@ -14,6 +14,7 @@ pub struct S3Config {
     pub secret_access_key: String,
     pub path_style: bool,
     pub error_message: Option<String>,
+    pub test_s3_button: bool,
 }
 
 impl Default for S3Config {
@@ -27,6 +28,7 @@ impl Default for S3Config {
             secret_access_key: String::new(),
             path_style: false,
             error_message: None,
+            test_s3_button: false,
         }
     }
 }
@@ -79,17 +81,17 @@ impl S3Config {
     /// Check if a focus field belongs to this config
     pub fn contains_field(field: super::FocusField) -> bool {
         use super::FocusField;
-        matches!(field, 
-            FocusField::Bucket | 
-            FocusField::Region | 
+        matches!(field,
+            FocusField::Bucket |
+            FocusField::Region |
             FocusField::Prefix |
-            FocusField::EndpointUrl | 
+            FocusField::EndpointUrl |
             FocusField::AccessKeyId |
-            FocusField::SecretAccessKey | 
+            FocusField::SecretAccessKey |
             FocusField::PathStyle
         )
     }
-    
+
     /// Verify S3 settings are valid
     pub fn verify_settings(&self) -> Result<()> {
         if self.bucket.is_empty() {
@@ -99,24 +101,24 @@ impl S3Config {
         if self.region.is_empty() {
             return Err(anyhow!("Region is required"));
         }
-        
+
         // Endpoint URL is optional for AWS S3
         // For testing purposes, allow anonymous access
         // In a real application, you'd want to validate credentials
-        
+
         // Skip credential checks for now to make development easier
         // We'll use anonymous credentials if none are provided
 
         Ok(())
     }
-    
+
     /// Initialize S3 client with current settings
     pub fn create_client(&self) -> Result<S3Client> {
         self.verify_settings()?;
-        
+
         let mut config_builder = aws_sdk_s3::config::Builder::new()
             .region(aws_sdk_s3::config::Region::new(self.region.clone()));
-            
+
         // Only add credentials if they are provided
         if !self.access_key_id.is_empty() && !self.secret_access_key.is_empty() {
             let credentials = Credentials::new(
@@ -147,7 +149,7 @@ impl S3Config {
         let config = config_builder.build();
         Ok(S3Client::from_conf(config))
     }
-    
+
     /// Test S3 connection and return success or error
     pub async fn test_connection(&self, popup_state_setter: impl FnOnce(PopupState)) -> Result<()> {
         let client = match self.create_client() {
@@ -158,7 +160,7 @@ impl S3Config {
                 return Err(anyhow!(error_msg));
             }
         };
-        
+
         match client.list_buckets().send().await {
             Ok(resp) => {
                 let buckets = resp.buckets();
@@ -181,12 +183,16 @@ impl S3Config {
     }
 
     pub fn mask_secret(&self, secret: &str) -> String {
+        if secret.is_empty() {
+            return String::new();
+        }
         if secret.len() <= 4 {
             return "*".repeat(secret.len());
         }
+        // Show only first 4 characters, then mask the rest
         let visible_chars = 4;
         let hidden_chars = secret.len() - visible_chars;
-        format!("{}{}", "*".repeat(hidden_chars), &secret[hidden_chars..])
+        format!("{}{}", &secret[..visible_chars], "*".repeat(hidden_chars))
     }
 
     pub fn masked_access_key(&self) -> String {
@@ -194,6 +200,20 @@ impl S3Config {
     }
 
     pub fn masked_secret_key(&self) -> String {
-        self.mask_secret(&self.secret_access_key)
+        if self.secret_access_key.is_empty() {
+            return String::new();
+        }
+        // Fully mask every character with asterisks
+        "*".repeat(self.secret_access_key.len())
+    }
+    
+    /// Get the display text for the secret access key field
+    /// Only shows the actual value when in edit mode
+    pub fn get_secret_key_display(&self, is_editing: bool, input_buffer: &str) -> String {
+        if is_editing {
+            format!("Secret Access Key: {}", input_buffer)
+        } else {
+            String::from("Secret Access Key: [hidden]")
+        }
     }
 }

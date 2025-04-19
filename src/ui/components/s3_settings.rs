@@ -30,6 +30,8 @@ pub fn render_s3_settings<B: Backend>(f: &mut Frame, app: &RustoredApp, area: Re
                 Constraint::Length(1), // Access Key ID
                 Constraint::Length(1), // Secret Access Key
                 Constraint::Length(1), // Path Style
+                Constraint::Min(1),    // Flexible space
+                Constraint::Length(1), // Help legend
             ]
             .as_ref(),
         )
@@ -99,7 +101,7 @@ pub fn render_s3_settings<B: Backend>(f: &mut Frame, app: &RustoredApp, area: Re
     f.render_widget(prefix, s3_settings_chunks[2]);
 
     // Endpoint URL
-    let endpoint_style = if app.focus == FocusField::EndpointUrl {
+    let endpoint_url_style = if app.focus == FocusField::EndpointUrl {
         if app.input_mode == InputMode::Editing {
             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
         } else {
@@ -109,15 +111,15 @@ pub fn render_s3_settings<B: Backend>(f: &mut Frame, app: &RustoredApp, area: Re
         Style::default()
     };
 
-    let endpoint_text = if app.focus == FocusField::EndpointUrl && app.input_mode == InputMode::Editing {
+    let endpoint_url_text = if app.focus == FocusField::EndpointUrl && app.input_mode == InputMode::Editing {
         format!("Endpoint URL: {}", app.input_buffer)
     } else {
         format!("Endpoint URL: {}", app.s3_config.endpoint_url)
     };
 
-    let endpoint = Paragraph::new(endpoint_text)
-        .style(endpoint_style);
-    f.render_widget(endpoint, s3_settings_chunks[3]);
+    let endpoint_url = Paragraph::new(endpoint_url_text)
+        .style(endpoint_url_style);
+    f.render_widget(endpoint_url, s3_settings_chunks[3]);
 
     // Access Key ID
     let access_key_style = if app.focus == FocusField::AccessKeyId {
@@ -151,11 +153,8 @@ pub fn render_s3_settings<B: Backend>(f: &mut Frame, app: &RustoredApp, area: Re
         Style::default()
     };
 
-    let secret_key_text = if app.focus == FocusField::SecretAccessKey && app.input_mode == InputMode::Editing {
-        format!("Secret Access Key: {}", app.input_buffer)
-    } else {
-        format!("Secret Access Key: {}", app.s3_config.masked_secret_key())
-    };
+    let is_editing = app.focus == FocusField::SecretAccessKey && app.input_mode == InputMode::Editing;
+    let secret_key_text = app.s3_config.get_secret_key_display(is_editing, &app.input_buffer);
 
     let secret_key = Paragraph::new(secret_key_text)
         .style(secret_key_style);
@@ -171,4 +170,42 @@ pub fn render_s3_settings<B: Backend>(f: &mut Frame, app: &RustoredApp, area: Re
     let path_style = Paragraph::new(path_style_text)
         .style(path_style_style);
     f.render_widget(path_style, s3_settings_chunks[6]);
+
+    // Help legend at the bottom of the window
+    let is_s3_focused = matches!(app.focus,
+        FocusField::Bucket |
+        FocusField::Region |
+        FocusField::Prefix |
+        FocusField::EndpointUrl |
+        FocusField::AccessKeyId |
+        FocusField::SecretAccessKey |
+        FocusField::PathStyle
+    );
+    
+    // Only show S3 connection test option if required fields are set
+    let has_required_fields = !app.s3_config.bucket.is_empty() &&
+                            !app.s3_config.access_key_id.is_empty() &&
+                            !app.s3_config.secret_access_key.is_empty();
+    
+    // Create help legend text
+    let mut help_items = Vec::new();
+    
+    // Always show navigation help
+    help_items.push(Span::styled("↑↓", Style::default().fg(Color::Yellow)));
+    help_items.push(Span::raw(" Navigate "));
+    
+    // Show test connection option if fields are set
+    if has_required_fields {
+        help_items.push(Span::styled("[t]", Style::default().fg(Color::Yellow)));
+        help_items.push(Span::raw(" Test Connection "));
+    }
+    
+    // Create the help legend
+    let help_text = Line::from(help_items);
+    let help_legend = Paragraph::new(help_text)
+        .style(Style::default().fg(Color::Gray))
+        .alignment(ratatui::layout::Alignment::Center);
+    
+    // Render the help legend at the bottom of the window
+    f.render_widget(help_legend, s3_settings_chunks[8]);
 }
