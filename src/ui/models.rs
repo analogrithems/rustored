@@ -15,6 +15,26 @@ pub enum RestoreTarget {
     Qdrant,
 }
 
+impl RestoreTarget {
+    /// Get focus fields for the current restore target
+    pub fn focus_fields(&self) -> &'static [FocusField] {
+        match self {
+            RestoreTarget::Postgres => postgres_config::PostgresConfig::focus_fields(),
+            RestoreTarget::Elasticsearch => elasticsearch_config::ElasticsearchConfig::focus_fields(),
+            RestoreTarget::Qdrant => qdrant_config::QdrantConfig::focus_fields(),
+        }
+    }
+    
+    /// Get the first focus field for the current restore target
+    pub fn first_focus_field(&self) -> FocusField {
+        match self {
+            RestoreTarget::Postgres => FocusField::PgHost,
+            RestoreTarget::Elasticsearch => FocusField::EsHost,
+            RestoreTarget::Qdrant => FocusField::QdrantApiKey,
+        }
+    }
+}
+
 pub mod postgres_config;
 pub use postgres_config::PostgresConfig;
 pub mod elasticsearch_config;

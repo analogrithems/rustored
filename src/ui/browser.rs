@@ -17,7 +17,7 @@ use random_word::Lang;
 use tokio_postgres::Config as PgConfig;
 
 use crate::postgres;
-use crate::ui::models::{S3Config, PostgresConfig, BackupMetadata, PopupState, InputMode, FocusField, RestoreTarget};
+use crate::ui::models::{S3Config, PostgresConfig, ElasticsearchConfig, QdrantConfig, BackupMetadata, PopupState, InputMode, FocusField, RestoreTarget};
 
 /// Snapshot browser for managing S3 backups
 pub struct SnapshotBrowser {
@@ -597,12 +597,54 @@ pub async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut browser: Snapsh
                     continue;
                 }
 
+                // Handle ConfirmRestore popup (cancel/confirm)
+                if let PopupState::ConfirmRestore(snapshot_meta) = &browser.popup_state {
+                    match key.code {
+                        KeyCode::Char('n') => { browser.popup_state = PopupState::Hidden; }
+                        KeyCode::Char('y') => {
+                            let snapshot = snapshot_meta.clone();
+                            browser.popup_state = PopupState::Hidden;
+                            // Download snapshot to temp dir
+                            let tmp_path = std::env::temp_dir().join(&snapshot.key);
+                            if let Some(path_str) = browser.download_snapshot(&snapshot, terminal, &tmp_path).await? {
+                                // Restore downloaded snapshot
+                                browser.restore_snapshot(&snapshot, terminal, &path_str).await?;
+                            }
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+
                 match browser.input_mode {
                     InputMode::Editing => {
-                        // Editing logic is handled in the specific window modules
-                        if key.code == KeyCode::Esc {
-                            browser.input_mode = InputMode::Normal;
-                            debug!("Exited editing mode");
+                        // Capture edit input
+                        match key.code {
+                            KeyCode::Esc => {
+                                browser.input_mode = InputMode::Normal;
+                                debug!("Exited editing mode");
+                            }
+                            KeyCode::Enter => {
+                                // Commit edits based on focus using the model's methods
+                                if S3Config::contains_field(browser.focus) {
+                                    browser.config.set_field_value(browser.focus, browser.input_buffer.clone());
+                                } else if PostgresConfig::contains_field(browser.focus) {
+                                    browser.pg_config.set_field_value(browser.focus, browser.input_buffer.clone());
+                                } else if ElasticsearchConfig::contains_field(browser.focus) {
+                                    // For Elasticsearch and Qdrant, we need to handle the shared fields
+                                    match browser.focus {
+                                        FocusField::EsHost => browser.es_host = Some(browser.input_buffer.clone()),
+                                        FocusField::EsIndex => browser.es_index = Some(browser.input_buffer.clone()),
+                                        FocusField::QdrantApiKey => browser.qdrant_api_key = Some(browser.input_buffer.clone()),
+                                        _ => {}
+                                    }
+                                }
+                                browser.input_buffer.clear();
+                                browser.input_mode = InputMode::Normal;
+                            }
+                            KeyCode::Char(c) => { browser.input_buffer.push(c); }
+                            KeyCode::Backspace => { browser.input_buffer.pop(); }
+                            _ => {}
                         }
                     },
                     InputMode::Normal => {
@@ -613,12 +655,8 @@ pub async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut browser: Snapsh
                             },
                             KeyCode::Tab => {
                                 if browser.focus == FocusField::RestoreTarget {
-                                    // Enter settings for selected restore target
-                                    browser.focus = match browser.restore_target {
-                                        RestoreTarget::Postgres => FocusField::PgHost,
-                                        RestoreTarget::Elasticsearch => FocusField::EsHost,
-                                        RestoreTarget::Qdrant => FocusField::QdrantApiKey,
-                                    };
+                                    // Enter settings for selected restore target using the model's method
+                                    browser.focus = browser.restore_target.first_focus_field();
                                     debug!("Switched focus into {:?} settings", browser.focus);
                                 } else {
                                     // Cycle through main windows: Restore Target, S3 Settings, Snapshots
@@ -651,30 +689,45 @@ pub async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut browser: Snapsh
                                     debug!("Switched restore target tab: {:?}", browser.restore_target);
                                 }
                             },
-                            KeyCode::Up | KeyCode::Down | KeyCode::Enter => {
-                                // Delegate navigation within the current window to the window-specific handler
+                            KeyCode::Enter => {
+                                // Enter: either start editing or handle snapshot restore
                                 match browser.focus {
                                     FocusField::SnapshotList => {
-                                        // Delegate to snapshot list navigation handler
                                         if handle_snapshot_list_navigation(&mut browser, key.code) {
                                             debug!("Snapshot list navigation: focus={:?} selected_idx={:?}", browser.focus, browser.selected_idx);
                                         }
-                                    },
-                                    FocusField::Bucket | FocusField::Region | FocusField::Prefix |
-                                    FocusField::EndpointUrl | FocusField::AccessKeyId |
-                                    FocusField::SecretAccessKey | FocusField::PathStyle => {
-                                        // Delegate to S3 settings navigation handler
-                                        if handle_s3_settings_navigation(&mut browser, key.code) {
-                                            debug!("S3 settings navigation: focus={:?}", browser.focus);
-                                        }
-                                    },
-                                    FocusField::RestoreTarget => {
-                                        // Delegate to restore target navigation handler
-                                        if handle_restore_target_navigation(&mut browser, key.code) {
-                                            debug!("Restore target navigation: focus={:?}", browser.focus);
-                                        }
-                                    },
-                                    _ => {}
+                                    }
+                                    // Start editing S3 config
+                                    field if S3Config::contains_field(field) => {
+                                        browser.input_mode = InputMode::Editing;
+                                        browser.input_buffer = browser.config.get_field_value(browser.focus);
+                                    }
+                                    // Start editing PostgreSQL settings
+                                    field if PostgresConfig::contains_field(field) => {
+                                        browser.input_mode = InputMode::Editing;
+                                        browser.input_buffer = browser.pg_config.get_field_value(browser.focus);
+                                    }
+                                    // Start editing Elasticsearch or Qdrant settings
+                                    field if ElasticsearchConfig::contains_field(field) || QdrantConfig::contains_field(field) => {
+                                        browser.input_mode = InputMode::Editing;
+                                        browser.input_buffer = match browser.focus {
+                                            FocusField::EsHost => browser.es_host.clone().unwrap_or_default(),
+                                            FocusField::EsIndex => browser.es_index.clone().unwrap_or_default(),
+                                            FocusField::QdrantApiKey => browser.qdrant_api_key.clone().unwrap_or_default(),
+                                            _ => String::new(),
+                                        };
+                                    }
+                                    _ => { }
+                                }
+                            },
+                            KeyCode::Up | KeyCode::Down => {
+                                // Delegate navigation within the current window
+                                if browser.focus == FocusField::SnapshotList {
+                                    handle_snapshot_list_navigation(&mut browser, key.code);
+                                } else if handle_s3_settings_navigation(&mut browser, key.code) {
+                                    debug!("S3 settings navigation: focus={:?}", browser.focus);
+                                } else if handle_restore_target_navigation(&mut browser, key.code) {
+                                    debug!("Restore target navigation: focus={:?}", browser.focus);
                                 }
                             },
                             _ => {}
@@ -693,7 +746,6 @@ pub async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut browser: Snapsh
     Ok(None)
 }
 
-
 fn handle_snapshot_list_navigation(browser: &mut SnapshotBrowser, key: KeyCode) -> bool {
     match key {
         KeyCode::Up => { browser.previous(); true },
@@ -710,12 +762,50 @@ fn handle_snapshot_list_navigation(browser: &mut SnapshotBrowser, key: KeyCode) 
     }
 }
 
-fn handle_s3_settings_navigation(_browser: &mut SnapshotBrowser, _key: KeyCode) -> bool {
-    // Implement S3 settings navigation logic in s3_config module
-    false
+fn handle_s3_settings_navigation(browser: &mut SnapshotBrowser, key: KeyCode) -> bool {
+    // Get fields for S3 settings using the model's method
+    let fields = S3Config::focus_fields();
+    
+    if let Some(idx) = fields.iter().position(|f| browser.focus == *f) {
+        match key {
+            KeyCode::Up => {
+                browser.focus = fields[(idx + fields.len() - 1) % fields.len()];
+                true
+            }
+            KeyCode::Down => {
+                browser.focus = fields[(idx + 1) % fields.len()];
+                true
+            }
+            _ => false,
+        }
+    } else {
+        false
+    }
 }
 
-fn handle_restore_target_navigation(_browser: &mut SnapshotBrowser, _key: KeyCode) -> bool {
-    // Implement restore target navigation logic in the appropriate module
-    false
+fn handle_restore_target_navigation(browser: &mut SnapshotBrowser, key: KeyCode) -> bool {
+    // Get fields for current restore target using the model's method
+    let fields = browser.restore_target.focus_fields();
+    
+    if browser.focus == FocusField::RestoreTarget {
+        match key {
+            KeyCode::Down => { browser.focus = fields[0]; true },
+            KeyCode::Up => { browser.focus = fields[fields.len() - 1]; true },
+            _ => false,
+        }
+    } else if let Some(idx) = fields.iter().position(|f| browser.focus == *f) {
+        match key {
+            KeyCode::Up => {
+                browser.focus = fields[(idx + fields.len() - 1) % fields.len()];
+                true
+            }
+            KeyCode::Down => {
+                browser.focus = fields[(idx + 1) % fields.len()];
+                true
+            }
+            _ => false,
+        }
+    } else {
+        false
+    }
 }
