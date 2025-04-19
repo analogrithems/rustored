@@ -73,9 +73,9 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         .map(|t| Line::from(Span::raw(*t)))
         .collect();
     let selected = match browser.restore_target {
-        crate::ui::models::RestoreTarget::Postgres => 0,
-        crate::ui::models::RestoreTarget::Elasticsearch => 1,
-        crate::ui::models::RestoreTarget::Qdrant => 2,
+        crate::datastore::RestoreTarget::Postgres => 0,
+        crate::datastore::RestoreTarget::Elasticsearch => 1,
+        crate::datastore::RestoreTarget::Qdrant => 2,
     };
 
     // Tabs at top of restore area
@@ -87,14 +87,14 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
 
     // Determine block title based on selected datastore
     let block_title = match browser.restore_target {
-        crate::ui::models::RestoreTarget::Postgres => "PostgreSQL Settings",
-        crate::ui::models::RestoreTarget::Elasticsearch => "Elasticsearch Settings",
-        crate::ui::models::RestoreTarget::Qdrant => "Qdrant Settings",
+        crate::datastore::RestoreTarget::Postgres => "PostgreSQL Settings",
+        crate::datastore::RestoreTarget::Elasticsearch => "Elasticsearch Settings",
+        crate::datastore::RestoreTarget::Qdrant => "Qdrant Settings",
     };
 
     // Datastore connection fields within a dynamic titled block
     f.render_widget(Block::default().borders(Borders::ALL).title(block_title), restore_chunks[1]);
-    if browser.restore_target == crate::ui::models::RestoreTarget::Postgres {
+    if browser.restore_target == crate::datastore::RestoreTarget::Postgres {
         // Editable PostgresConfig fields
         let field_chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -130,7 +130,7 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     } else {
         let mut conn_lines = vec![];
         match browser.restore_target {
-            crate::ui::models::RestoreTarget::Postgres => {
+            crate::datastore::RestoreTarget::Postgres => {
                 // Postgres connection fields
                 conn_lines.push(Line::from(format!("Host: {}", browser.pg_config.host.as_deref().unwrap_or(""))));
                 conn_lines.push(Line::from(format!("Port: {}", browser.pg_config.port.map(|p| p.to_string()).unwrap_or_default())));
@@ -139,14 +139,14 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
                 conn_lines.push(Line::from(format!("SSL: {}", browser.pg_config.use_ssl)));
                 conn_lines.push(Line::from(format!("Database: {}", browser.pg_config.db_name.as_deref().unwrap_or(""))));
             },
-            crate::ui::models::RestoreTarget::Elasticsearch => {
-                conn_lines.push(Line::from(format!("Elasticsearch Host: {}", browser.es_host.as_deref().unwrap_or(""))));
-                conn_lines.push(Line::from(format!("Index: {}", browser.es_index.as_deref().unwrap_or(""))));
+            crate::datastore::RestoreTarget::Elasticsearch => {
+                conn_lines.push(Line::from(format!("Elasticsearch Host: {}", browser.es_config.host.as_deref().unwrap_or(""))));
+                conn_lines.push(Line::from(format!("Index: {}", browser.es_config.index.as_deref().unwrap_or(""))));
             },
-            crate::ui::models::RestoreTarget::Qdrant => {
-                conn_lines.push(Line::from(format!("Qdrant Host: {}", browser.es_host.as_deref().unwrap_or(""))));
-                conn_lines.push(Line::from(format!("Collection: {}", browser.es_index.as_deref().unwrap_or(""))));
-                conn_lines.push(Line::from(format!("API Key: {}", browser.qdrant_api_key.as_deref().unwrap_or(""))));
+            crate::datastore::RestoreTarget::Qdrant => {
+                conn_lines.push(Line::from(format!("Qdrant Host: {}", browser.qdrant_config.host.as_deref().unwrap_or(""))));
+                conn_lines.push(Line::from(format!("Collection: {}", browser.qdrant_config.collection.as_deref().unwrap_or(""))));
+                conn_lines.push(Line::from(format!("API Key: {}", browser.qdrant_config.api_key.as_deref().unwrap_or(""))));
             },
         }
         let conn_block = Paragraph::new(conn_lines)
@@ -182,7 +182,7 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     let bucket_text = if browser.focus == FocusField::Bucket && browser.input_mode == crate::ui::models::InputMode::Editing {
         format!("Bucket: {}", browser.input_buffer)
     } else {
-        format!("Bucket: {}", browser.config.bucket)
+        format!("Bucket: {}", browser.s3_config.bucket)
     };
 
     let bucket = Paragraph::new(bucket_text)
@@ -203,7 +203,7 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     let region_text = if browser.focus == FocusField::Region && browser.input_mode == crate::ui::models::InputMode::Editing {
         format!("Region: {}", browser.input_buffer)
     } else {
-        format!("Region: {}", browser.config.region)
+        format!("Region: {}", browser.s3_config.region)
     };
 
     let region = Paragraph::new(region_text)
@@ -224,7 +224,7 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     let prefix_text = if browser.focus == FocusField::Prefix && browser.input_mode == crate::ui::models::InputMode::Editing {
         format!("Prefix: {}", browser.input_buffer)
     } else {
-        format!("Prefix: {}", browser.config.prefix)
+        format!("Prefix: {}", browser.s3_config.prefix)
     };
 
     let prefix = Paragraph::new(prefix_text)
@@ -245,7 +245,7 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     let endpoint_text = if browser.focus == FocusField::EndpointUrl && browser.input_mode == crate::ui::models::InputMode::Editing {
         format!("Endpoint URL: {}", browser.input_buffer)
     } else {
-        format!("Endpoint URL: {}", browser.config.endpoint_url)
+        format!("Endpoint URL: {}", browser.s3_config.endpoint_url)
     };
 
     let endpoint = Paragraph::new(endpoint_text)
@@ -266,7 +266,7 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     let access_key_text = if browser.focus == FocusField::AccessKeyId && browser.input_mode == crate::ui::models::InputMode::Editing {
         format!("Access Key ID: {}", browser.input_buffer)
     } else {
-        format!("Access Key ID: {}", browser.config.masked_access_key())
+        format!("Access Key ID: {}", browser.s3_config.masked_access_key())
     };
 
     let access_key = Paragraph::new(access_key_text)
@@ -287,7 +287,7 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     let secret_key_text = if browser.focus == FocusField::SecretAccessKey && browser.input_mode == crate::ui::models::InputMode::Editing {
         format!("Secret Access Key: {}", browser.input_buffer)
     } else {
-        format!("Secret Access Key: {}", browser.config.masked_secret_key())
+        format!("Secret Access Key: {}", browser.s3_config.masked_secret_key())
     };
 
     let secret_key = Paragraph::new(secret_key_text)
@@ -300,7 +300,7 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     } else {
         Style::default()
     };
-    let path_style_text = format!("Path Style: {}", browser.config.path_style);
+    let path_style_text = format!("Path Style: {}", browser.s3_config.path_style);
     let path_style = Paragraph::new(path_style_text)
         .style(path_style_style);
     f.render_widget(path_style, s3_settings_chunks[6]);
@@ -326,7 +326,7 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
             let formatted_date = dt.format("%Y-%m-%d %H:%M:%S").to_string();
             let size_mb = snapshot.size as f64 / 1024.0 / 1024.0;
             let content = format!("{} - {:.2} MB - {}", snapshot.key, size_mb, formatted_date);
-            let style = if Some(i) == browser.selected_idx {
+            let style = if i == browser.selected_index {
                 Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
@@ -504,7 +504,7 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         _ => {}
     }
 
-    if let Some(error) = &browser.config.error_message {
+    if let Some(error) = &browser.s3_config.error_message {
         let error_block = Block::default()
             .title("Error")
             .borders(Borders::ALL);

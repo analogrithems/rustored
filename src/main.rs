@@ -1,5 +1,4 @@
 use rustored::{backup, ui, config};
-
 use anyhow::Result;
 use clap::{Parser, Subcommand, command, arg};
 use rustored::postgres;
@@ -7,6 +6,10 @@ use tokio_postgres::config::SslMode;
 use tokio_postgres::Config as PgConfig;
 use log::{error, info, warn, LevelFilter};
 use log4rs::{append::file::FileAppender, config::{Appender, Config as LogConfig, Root}, encode::pattern::PatternEncoder};
+use crossterm::{execute, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}};
+use ratatui::backend::CrosstermBackend;
+use ratatui::Terminal;
+use rustored::ui::rustored::RustoredApp;
 
 #[derive(Parser)]
 #[command(name = "rustored")]
@@ -62,6 +65,18 @@ struct Cli {
 
     #[arg(long, default_value = "true", env = "S3_PATH_STYLE", help = "S3 Force path-style")]
     path_style: bool,
+
+    /// Elasticsearch host or URL
+    #[arg(long, help = "Elasticsearch host or URL")]
+    es_host: Option<String>,
+
+    /// Elasticsearch index or Qdrant collection name
+    #[arg(long, help = "Elasticsearch index or Qdrant collection name")]
+    es_index: Option<String>,
+
+    /// Qdrant API key (optional)
+    #[arg(long, help = "Qdrant API key (optional)")]
+    qdrant_api_key: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -190,7 +205,7 @@ async fn connect(cli: &Cli) -> Result<Option<tokio_postgres::Client>> {
             Ok(None)
         }
     }
-  }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -322,21 +337,36 @@ async fn main() -> Result<()> {
             datastore.restore(&name, &input).await?;
         }
         Commands::BrowseSnapshots => {
-            // Use the new UI module to browse snapshots
-            let res = ui::run_tui(
-                cli.bucket,
-                cli.region,
-                cli.prefix,
-                cli.endpoint_url,
-                cli.access_key_id,
-                cli.secret_access_key,
-                true, // path_style
-            ).await?;
-
+            // TUI using RustoredApp
+            enable_raw_mode()?;
+            let mut stdout = std::io::stdout();
+            execute!(stdout, EnterAlternateScreen, crossterm::event::EnableMouseCapture)?;
+            let backend = CrosstermBackend::new(stdout);
+            let mut terminal = Terminal::new(backend)?;
+            let mut app = RustoredApp::new(
+                cli.bucket.clone(),
+                cli.region.clone(),
+                cli.prefix.clone(),
+                cli.endpoint_url.clone(),
+                cli.access_key_id.clone(),
+                cli.secret_access_key.clone(),
+                cli.path_style,
+                cli.host.clone(),
+                cli.port,
+                cli.username.clone(),
+                cli.password.clone(),
+                cli.use_ssl,
+                cli.db_name.clone(),
+                cli.es_host.clone(),
+                cli.es_index.clone(),
+                cli.qdrant_api_key.clone(),
+            );
+            let res = app.run(&mut terminal).await?;
+            disable_raw_mode()?;
+            execute!(std::io::stdout(), LeaveAlternateScreen, crossterm::event::DisableMouseCapture)?;
+            terminal.show_cursor()?;
             if let Some(snapshot_key) = res {
-                // The snapshot has been downloaded and restored through the UI
                 info!("Snapshot processed: {}", snapshot_key);
-                // The restore operation is handled within the UI flow
             }
         }
     }

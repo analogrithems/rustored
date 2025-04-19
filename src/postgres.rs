@@ -1,10 +1,11 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 
 use tokio_postgres::Config as PgConfig;
-
-use log::{error, info};
+use log::{error, info, debug};
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
+use random_word::{Lang, get as random_word};
+use tokio::task;
 
 // Connect to PostgreSQL with SSL
 pub async fn connect_ssl(config: &PgConfig, verify: bool, root_cert_path: Option<&str>) -> Result<tokio_postgres::Client> {
@@ -135,4 +136,88 @@ pub async fn change_password(client: &tokio_postgres::Client, user: &str, passwo
 
   info!("Password for user '{}' changed successfully", user);
   Ok(())
+}
+
+/// Restore a database from a snapshot file
+pub async fn restore_snapshot(
+    host: &str,
+    port: u16,
+    username: Option<String>,
+    password: Option<String>,
+    use_ssl: bool,
+    file_path: &str,
+) -> Result<String> {
+    // Create a new database with a random name
+    let new_dbname = format!("{}-restored", random_word(Lang::En));
+    
+    // Create a PgConfig for connection
+    let mut config = PgConfig::new();
+    config.host(host);
+    config.port(port);
+    
+    if let Some(user) = &username {
+        config.user(user);
+    }
+    
+    if let Some(pass) = &password {
+        config.password(pass);
+    }
+    
+    // Connect to PostgreSQL
+    let client = if use_ssl {
+        connect_ssl(&config, false, None).await?
+    } else {
+        connect_no_ssl(&config).await?
+    };
+    
+    // Create the target database
+    match create_database(&client, &new_dbname).await {
+        Ok(_) => {
+            info!("Successfully created restore database: {}", new_dbname);
+        },
+        Err(e) => {
+            let error_msg = format!("Failed to create restore database: {}", e);
+            return Err(anyhow!(error_msg));
+        }
+    }
+    
+    // Create owned versions of parameters for the blocking task
+    let file_path_owned = file_path.to_string();
+    let host_owned = host.to_string();
+    let new_dbname_owned = new_dbname.clone();
+    
+    // Spawn a blocking task to handle the restore operation
+    let restore_handle = task::spawn_blocking(move || {
+        // Call the restore_database function from the backup module
+        let result = crate::backup::restore_database(
+            &new_dbname_owned,
+            &file_path_owned,
+            &host_owned,
+            port,
+            username.as_deref(),
+            password.as_deref(),
+            use_ssl,
+        );
+        result
+    });
+    
+    // Wait for the restore operation to complete
+    match restore_handle.await {
+        Ok(inner_result) => {
+            match inner_result {
+                Ok(_) => {
+                    info!("pg_restore completed successfully to database {}", new_dbname);
+                    Ok(new_dbname)
+                },
+                Err(e) => {
+                    error!("pg_restore failed: {}", e);
+                    Err(anyhow!("pg_restore task failed: {}", e))
+                }
+            }
+        },
+        Err(e) => {
+            error!("pg_restore task panicked: {}", e);
+            Err(anyhow!("pg_restore task issues: {}", e))
+        }
+    }
 }
