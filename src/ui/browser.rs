@@ -1,22 +1,17 @@
 use anyhow::{anyhow, Result};
-use aws_sdk_s3::{Client as S3Client, config::Credentials};
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    execute,
-};
+use aws_sdk_s3::Client as S3Client;
+use crossterm::event::{self, Event, KeyCode, KeyModifiers, DisableMouseCapture, EnableMouseCapture};
+use crossterm::{execute, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}};
 use libc::{raise, SIGTSTP};
-use log::{debug, info};
+use log::debug;
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::Terminal;
-use std::time::Duration;
 use std::io::stdout;
-use tokio::io::AsyncWriteExt;
+use std::time::Duration;
 use tokio::time::sleep;
+use tokio::io::AsyncWriteExt;
 use random_word::Lang;
-use tokio_postgres::Config as PgConfig;
 
-use crate::postgres;
 use crate::ui::models::{S3Config, PostgresConfig, ElasticsearchConfig, QdrantConfig, BackupMetadata, PopupState, InputMode, FocusField, RestoreTarget};
 
 /// Snapshot browser for managing S3 backups
@@ -56,74 +51,13 @@ impl std::fmt::Debug for SnapshotBrowser {
 
 impl SnapshotBrowser {
     pub async fn test_s3_connection(&mut self) -> Result<()> {
-        if self.s3_client.is_none() {
-            if let Err(e) = self.init_s3_client().await {
-                self.popup_state = PopupState::Error(format!("Failed to initialize S3 client: {}", e));
-                return Err(e);
-            }
-        }
-
-        match self.s3_client.as_ref().unwrap().list_buckets().send().await {
-            Ok(resp) => {
-                let buckets = resp.buckets();
-                let bucket_names: Vec<String> = buckets
-                    .iter()
-                    .filter_map(|b| b.name().map(|s| s.to_string()))
-                    .collect();
-
-                let result = format!("Successfully connected to S3!\nAvailable buckets: {}",
-                    if bucket_names.is_empty() { "None".to_string() } else { bucket_names.join(", ") });
-                self.popup_state = PopupState::TestS3Result(result);
-                Ok(())
-            },
-            Err(e) => {
-                let error_msg = format!("Failed to connect to S3: {}", e);
-                self.popup_state = PopupState::Error(error_msg.clone());
-                Err(anyhow!(error_msg))
-            }
-        }
+        // Use the test_connection method from S3Config
+        self.config.test_connection(|state| self.popup_state = state).await
     }
 
     pub async fn test_pg_connection(&mut self) -> Result<Option<tokio_postgres::Client>> {
-        // Validate PostgreSQL settings
-        if self.pg_config.host.is_none() || self.pg_config.host.as_ref().unwrap().is_empty() {
-            self.popup_state = PopupState::Error("PostgreSQL host is required".to_string());
-            return Err(anyhow!("PostgreSQL host is required"));
-        }
-
-        if self.pg_config.port.is_none() {
-            self.popup_state = PopupState::Error("PostgreSQL port is required".to_string());
-            return Err(anyhow!("PostgreSQL port is required"));
-        }
-
-        if self.pg_config.username.is_none() || self.pg_config.username.as_ref().unwrap().is_empty() {
-            self.popup_state = PopupState::Error("PostgreSQL username is required".to_string());
-            return Err(anyhow!("PostgreSQL username is required"));
-        }
-
-        // Construct connection string
-        let mut config = PgConfig::new();
-        config.host(self.pg_config.host.as_ref().unwrap());
-        config.port(self.pg_config.port.unwrap());
-        config.user(self.pg_config.username.as_ref().unwrap());
-        config.password(&self.pg_config.password.as_ref().unwrap_or(&String::new()));
-        let result = if self.pg_config.use_ssl {
-            postgres::connect_ssl(&config, false, None).await
-        } else {
-            postgres::connect_no_ssl(&config).await
-        };
-        match result {
-            Ok(client) => {
-                info!("Successfully connected to PostgreSQL");
-                self.popup_state = PopupState::TestPgResult(format!("Successfully connected to PostgreSQL\nConnection string: {:?}", config));
-                Ok(Some(client))
-            },
-            Err(e) => {
-                let error_msg = format!("Failed to connect to PostgreSQL: {}", e);
-                self.popup_state = PopupState::Error(error_msg.clone());
-                Err(anyhow!(error_msg))
-            }
-        }
+        // Use the test_connection method from PostgresConfig
+        self.pg_config.test_connection(|state| self.popup_state = state).await
     }
 
 
@@ -147,28 +81,9 @@ pub fn new(config: S3Config, pg_config: PostgresConfig) -> Self {
         }
     }
 
-    pub fn verify_s3_settings(&self) -> Result<()> {
-        if self.config.bucket.is_empty() {
-            return Err(anyhow!("Bucket name is required"));
-        }
-
-        if self.config.region.is_empty() {
-            return Err(anyhow!("Region is required"));
-        }
-
-        if self.config.endpoint_url.is_empty() {
-            return Err(anyhow!("Endpoint URL is required"));
-        }
-
-        if self.config.access_key_id.is_empty() {
-            return Err(anyhow!("Access Key ID is required"));
-        }
-
-        if self.config.secret_access_key.is_empty() {
-            return Err(anyhow!("Secret Access Key is required"));
-        }
-
-        Ok(())
+    pub async fn verify_s3_settings(&mut self) -> Result<()> {
+        // Use the verify_settings method from S3Config
+        self.config.verify_settings()
     }
 
     pub fn set_error(&mut self, message: Option<String>) {
@@ -176,45 +91,19 @@ pub fn new(config: S3Config, pg_config: PostgresConfig) -> Self {
     }
 
     pub async fn init_s3_client(&mut self) -> Result<()> {
-        if let Err(e) = self.verify_s3_settings() {
-            self.set_error(Some(e.to_string()));
-            return Err(e);
+        // Use the create_client method from S3Config
+        match self.config.create_client() {
+            Ok(client) => {
+                // Clear any previous error
+                self.set_error(None);
+                self.s3_client = Some(client);
+                Ok(())
+            },
+            Err(e) => {
+                self.set_error(Some(e.to_string()));
+                Err(e)
+            }
         }
-
-        // Clear any previous error
-        self.set_error(None);
-
-        let credentials = Credentials::new(
-            &self.config.access_key_id,
-            &self.config.secret_access_key,
-            None, None, "postgres-manager"
-        );
-
-        let mut config_builder = aws_sdk_s3::config::Builder::new()
-            .credentials_provider(credentials)
-            .region(aws_sdk_s3::config::Region::new(self.config.region.clone()));
-
-        if !self.config.endpoint_url.is_empty() {
-            let endpoint_url = if !self.config.endpoint_url.starts_with("http") {
-                format!("http://{}", self.config.endpoint_url)
-            } else {
-                self.config.endpoint_url.clone()
-            };
-
-            config_builder = config_builder.endpoint_url(endpoint_url);
-        }
-
-        if self.config.path_style {
-            config_builder = config_builder.force_path_style(true);
-        }
-
-        // Add behavior version which is required by AWS SDK
-        config_builder = config_builder.behavior_version(aws_sdk_s3::config::BehaviorVersion::latest());
-
-        let config = config_builder.build();
-        self.s3_client = Some(S3Client::from_conf(config));
-
-        Ok(())
     }
 
     pub async fn load_snapshots(&mut self) -> Result<()> {
@@ -718,6 +607,22 @@ pub async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut browser: Snapsh
                                         };
                                     }
                                     _ => { }
+                                }
+                            },
+                            KeyCode::Char('t') => {
+                                // Test connection based on current focus
+                                if S3Config::contains_field(browser.focus) {
+                                    // Test S3 connection when focus is on any S3 field
+                                    debug!("Testing S3 connection...");
+                                    if let Err(e) = browser.test_s3_connection().await {
+                                        debug!("S3 connection test failed: {}", e);
+                                    }
+                                } else if PostgresConfig::contains_field(browser.focus) {
+                                    // Test PostgreSQL connection when focus is on any PostgreSQL field
+                                    debug!("Testing PostgreSQL connection...");
+                                    if let Err(e) = browser.test_pg_connection().await {
+                                        debug!("PostgreSQL connection test failed: {}", e);
+                                    }
                                 }
                             },
                             KeyCode::Up | KeyCode::Down => {

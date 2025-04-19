@@ -1,4 +1,9 @@
 /// Configuration for S3 connection
+use anyhow::{anyhow, Result};
+use aws_sdk_s3::Client as S3Client;
+use aws_sdk_s3::config::Credentials;
+use crate::ui::models::PopupState;
+
 #[derive(Clone, Debug)]
 pub struct S3Config {
     pub bucket: String,
@@ -68,6 +73,98 @@ impl S3Config {
             FocusField::SecretAccessKey | 
             FocusField::PathStyle
         )
+    }
+    
+    /// Verify S3 settings are valid
+    pub fn verify_settings(&self) -> Result<()> {
+        if self.bucket.is_empty() {
+            return Err(anyhow!("Bucket name is required"));
+        }
+
+        if self.region.is_empty() {
+            return Err(anyhow!("Region is required"));
+        }
+
+        if self.endpoint_url.is_empty() {
+            return Err(anyhow!("Endpoint URL is required"));
+        }
+
+        if self.access_key_id.is_empty() {
+            return Err(anyhow!("Access Key ID is required"));
+        }
+
+        if self.secret_access_key.is_empty() {
+            return Err(anyhow!("Secret Access Key is required"));
+        }
+
+        Ok(())
+    }
+    
+    /// Initialize S3 client with current settings
+    pub fn create_client(&self) -> Result<S3Client> {
+        self.verify_settings()?;
+        
+        let credentials = Credentials::new(
+            &self.access_key_id,
+            &self.secret_access_key,
+            None, None, "rustored"
+        );
+
+        let mut config_builder = aws_sdk_s3::config::Builder::new()
+            .credentials_provider(credentials)
+            .region(aws_sdk_s3::config::Region::new(self.region.clone()));
+
+        if !self.endpoint_url.is_empty() {
+            let endpoint_url = if !self.endpoint_url.starts_with("http") {
+                format!("http://{}", self.endpoint_url)
+            } else {
+                self.endpoint_url.clone()
+            };
+
+            config_builder = config_builder.endpoint_url(endpoint_url);
+        }
+
+        if self.path_style {
+            config_builder = config_builder.force_path_style(true);
+        }
+
+        // Add behavior version which is required by AWS SDK
+        config_builder = config_builder.behavior_version(aws_sdk_s3::config::BehaviorVersion::latest());
+
+        let config = config_builder.build();
+        Ok(S3Client::from_conf(config))
+    }
+    
+    /// Test S3 connection and return success or error
+    pub async fn test_connection(&self, popup_state_setter: impl FnOnce(PopupState)) -> Result<()> {
+        let client = match self.create_client() {
+            Ok(client) => client,
+            Err(e) => {
+                let error_msg = format!("Failed to initialize S3 client: {}", e);
+                popup_state_setter(PopupState::Error(error_msg.clone()));
+                return Err(anyhow!(error_msg));
+            }
+        };
+        
+        match client.list_buckets().send().await {
+            Ok(resp) => {
+                let buckets = resp.buckets();
+                let bucket_names: Vec<String> = buckets
+                    .iter()
+                    .filter_map(|b| b.name().map(|s| s.to_string()))
+                    .collect();
+
+                let result = format!("Successfully connected to S3!\nAvailable buckets: {}",
+                    if bucket_names.is_empty() { "None".to_string() } else { bucket_names.join(", ") });
+                popup_state_setter(PopupState::TestS3Result(result));
+                Ok(())
+            },
+            Err(e) => {
+                let error_msg = format!("Failed to connect to S3: {}", e);
+                popup_state_setter(PopupState::Error(error_msg.clone()));
+                Err(anyhow!(error_msg))
+            }
+        }
     }
 
     pub fn mask_secret(&self, secret: &str) -> String {
