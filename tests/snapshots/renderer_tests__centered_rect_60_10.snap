@@ -4,7 +4,7 @@ expression: rect1
 ---
 Rect {
     x: 20,
-    y: 18,
+    y: 23,
     width: 60,
-    height: 10,
+    height: 5,
 }

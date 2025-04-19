@@ -98,6 +98,19 @@ pub fn render_popups<B: Backend>(f: &mut Frame, app: &RustoredApp) {
                 .alignment(Alignment::Center);
             f.render_widget(popup, area);
         }
+        PopupState::TestingPg => {
+            let area = centered_rect(60, 5, f.size());
+            // Clear the area where the popup will be rendered
+            f.render_widget(ratatui::widgets::Clear, area);
+            let popup = Paragraph::new(vec![
+                Line::from(vec![Span::raw("Testing connection to PostgreSQL...")]),
+                Line::from(vec![]),
+                Line::from(vec![Span::raw("Please wait")]),
+            ])
+                .block(Block::default().title("PostgreSQL Connection Test").borders(Borders::ALL))
+                .alignment(Alignment::Center);
+            f.render_widget(popup, area);
+        }
         PopupState::TestPgResult(result) => {
             let area = centered_rect(60, 5, f.size());
             // Clear the area where the popup will be rendered

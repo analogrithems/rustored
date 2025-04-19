@@ -11,4 +11,5 @@ S3Config {
     secret_access_key: "test-secret-key",
     path_style: false,
     error_message: None,
+    test_s3_button: false,
 }

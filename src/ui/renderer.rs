@@ -57,6 +57,8 @@ fn render_postgres_settings<B: Backend>(f: &mut Frame, app: &RustoredApp, area: 
                 Constraint::Length(1), // Password
                 Constraint::Length(1), // SSL
                 Constraint::Length(1), // DB Name
+                Constraint::Min(1),    // Flexible space
+                Constraint::Length(1), // Help legend
             ]
             .as_ref(),
         )
@@ -106,6 +108,33 @@ fn render_postgres_settings<B: Backend>(f: &mut Frame, app: &RustoredApp, area: 
     let db_name_text = format!("Database: {}", db_name_value);
     let db_name_paragraph = Paragraph::new(db_name_text).style(db_name_style);
     f.render_widget(db_name_paragraph, settings_chunks[5]);
+
+    // Only show PG connection test option if required fields are set
+    let has_required_fields = app.pg_config.host.is_some() &&
+                             app.pg_config.port.is_some() &&
+                             app.pg_config.db_name.is_some();
+
+    // Create help legend text
+    let mut help_items = Vec::new();
+
+    // Always show navigation help
+    help_items.push(Span::styled("↑↓", Style::default().fg(Color::Yellow)));
+    help_items.push(Span::raw(" Navigate "));
+
+    // Show test connection option if fields are set
+    if has_required_fields {
+        help_items.push(Span::styled("[p]", Style::default().fg(Color::Yellow)));
+        help_items.push(Span::raw(" Test Connection "));
+    }
+
+    // Create the help legend
+    let help_text = Line::from(help_items);
+    let help_legend = Paragraph::new(help_text)
+        .style(Style::default().fg(Color::Gray))
+        .alignment(Alignment::Center);
+
+    // Render the help legend at the bottom of the window
+    f.render_widget(help_legend, settings_chunks[7]);
 }
 
 /// Render Elasticsearch settings
@@ -214,7 +243,7 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
         .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
         .alignment(Alignment::Center);
     f.render_widget(title, chunks[0]);
-    
+
     // Create horizontal layout for S3 Settings, Restore Target, and Restore Settings
     let horizontal_chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -233,7 +262,7 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
         .title("S3 Settings")
         .borders(Borders::ALL);
     f.render_widget(s3_settings_block, horizontal_chunks[0]);
-    
+
     // Restore Target section
     let restore_target_block = Block::default()
         .title("Restore Target")
@@ -262,7 +291,7 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
         RestoreTarget::Elasticsearch => "Elasticsearch",
         RestoreTarget::Qdrant => "Qdrant",
     };
-    
+
     let current_selection = Paragraph::new(format!("Current selection: {}", current_target))
         .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
     f.render_widget(current_selection, restore_chunks[0]);
@@ -285,7 +314,7 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
     f.render_widget(pg_option, restore_chunks[2]);
     f.render_widget(es_option, restore_chunks[3]);
     f.render_widget(qdrant_option, restore_chunks[4]);
-    
+
     // Create a block for the restore settings
     let restore_settings_block = Block::default()
         .title(match app.restore_target {
@@ -317,6 +346,8 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
                 Constraint::Length(1), // Access Key ID
                 Constraint::Length(1), // Secret Access Key
                 Constraint::Length(1), // Path Style
+                Constraint::Min(1),    // Flexible space
+                Constraint::Length(1), // Help legend
             ]
             .as_ref(),
         )
@@ -372,6 +403,33 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
         f.render_widget(paragraph, s3_settings_chunks[i]);
     }
 
+    // Only show S3 connection test option if required fields are set
+    let has_required_fields = !app.s3_config.bucket.is_empty() &&
+                            !app.s3_config.access_key_id.is_empty() &&
+                            !app.s3_config.secret_access_key.is_empty();
+
+    // Create help legend text
+    let mut help_items = Vec::new();
+
+    // Always show navigation help
+    help_items.push(Span::styled("↑↓", Style::default().fg(Color::Yellow)));
+    help_items.push(Span::raw(" Navigate "));
+
+    // Show test connection option if fields are set
+    if has_required_fields {
+        help_items.push(Span::styled("[t]", Style::default().fg(Color::Yellow)));
+        help_items.push(Span::raw(" Test Connection "));
+    }
+
+    // Create the help legend
+    let help_text = Line::from(help_items);
+    let help_legend = Paragraph::new(help_text)
+        .style(Style::default().fg(Color::Gray))
+        .alignment(Alignment::Center);
+
+    // Render the help legend at the bottom of the window
+    f.render_widget(help_legend, s3_settings_chunks[8]);
+
     // Snapshot Browser section
     let snapshots_block = Block::default()
         .title("Snapshots")
@@ -386,7 +444,7 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
             width: chunks[2].width - 2,
             height: chunks[2].height - 2,
         };
-        
+
         // Create table rows from snapshots
         let visible_snapshots = if app.snapshot_browser.snapshots.len() > snapshot_list_area.height as usize {
             // Calculate which snapshots to display based on selected index
@@ -394,7 +452,7 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
             let list_height = snapshot_list_area.height as usize;
             let half_height = list_height / 2;
             let total_items = app.snapshot_browser.snapshots.len();
-            
+
             let start_idx = if selected < half_height {
                 0
             } else if selected >= total_items - half_height {
@@ -402,13 +460,13 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
             } else {
                 selected - half_height
             };
-            
+
             let end_idx = std::cmp::min(start_idx + list_height, total_items);
             &app.snapshot_browser.snapshots[start_idx..end_idx]
         } else {
             &app.snapshot_browser.snapshots
         };
-        
+
         // Create rows for the table
         let rows: Vec<Row> = visible_snapshots
             .iter()
@@ -420,10 +478,10 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
                 let formatted_date = dt.format("%Y-%m-%d %H:%M:%S").to_string();
                 let size_mb = snapshot.size as f64 / 1024.0 / 1024.0;
                 let formatted_size = format!("{:.2} MB", size_mb);
-                
+
                 // Use the full S3 path
                 let full_path = &snapshot.key;
-                
+
                 // Apply style to the selected row
                 let is_selected = i + (visible_snapshots.as_ptr() as usize - app.snapshot_browser.snapshots.as_ptr() as usize) / std::mem::size_of::<crate::ui::models::BackupMetadata>() == app.snapshot_browser.selected_index;
                 let style = if is_selected {
@@ -431,7 +489,7 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
                 } else {
                     Style::default()
                 };
-                
+
                 Row::new(vec![
                     Cell::from(full_path.to_string()).style(style),
                     Cell::from(formatted_size).style(style),
@@ -439,7 +497,7 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
                 ])
             })
             .collect();
-        
+
         // Create header row
         let header_style = Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD);
         let header = Row::new(vec![
@@ -447,18 +505,18 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
             Cell::from("Size").style(header_style),
             Cell::from("Last Modified").style(header_style),
         ]);
-        
+
         // Create table with header and rows
         let mut table_rows = vec![header];
         table_rows.extend(rows);
-        
+
         let table = Table::new(table_rows, &[
                 Constraint::Percentage(50),  // Filename takes 50% of the width
                 Constraint::Percentage(15),  // Size takes 15% of the width
                 Constraint::Percentage(35),  // Date takes 35% of the width
             ])
             .column_spacing(1);
-            
+
         f.render_widget(table, snapshot_list_area);
     } else {
         let no_snapshots_msg = Paragraph::new("No snapshots found")
@@ -576,6 +634,62 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
                 .alignment(Alignment::Center);
                 f.render_widget(popup, area);
             },
+            PopupState::TestingS3 => {
+                let popup = Paragraph::new(vec![
+                    Line::from(vec![Span::styled(
+                        "Testing S3 Connection...",
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    )]),
+                    Line::from(vec![]),
+                    Line::from(vec![Span::raw("Please wait")]),
+                ])
+                .block(Block::default().title("S3 Connection Test").borders(Borders::ALL))
+                .alignment(Alignment::Center);
+                f.render_widget(popup, area);
+            },
+            PopupState::TestS3Result(result) => {
+                let popup = Paragraph::new(vec![
+                    Line::from(vec![Span::styled(
+                        "S3 Connection Test Result",
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    )]),
+                    Line::from(vec![]),
+                    Line::from(vec![Span::raw(result)]),
+                    Line::from(vec![]),
+                    Line::from(vec![Span::raw("Press Esc to dismiss")]),
+                ])
+                .block(Block::default().title("S3 Connection Test").borders(Borders::ALL))
+                .alignment(Alignment::Center);
+                f.render_widget(popup, area);
+            },
+            PopupState::TestingPg => {
+                let popup = Paragraph::new(vec![
+                    Line::from(vec![Span::styled(
+                        "Testing PostgreSQL Connection...",
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    )]),
+                    Line::from(vec![]),
+                    Line::from(vec![Span::raw("Please wait")]),
+                ])
+                .block(Block::default().title("PostgreSQL Connection Test").borders(Borders::ALL))
+                .alignment(Alignment::Center);
+                f.render_widget(popup, area);
+            },
+            PopupState::TestPgResult(result) => {
+                let popup = Paragraph::new(vec![
+                    Line::from(vec![Span::styled(
+                        "PostgreSQL Connection Test Result",
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    )]),
+                    Line::from(vec![]),
+                    Line::from(vec![Span::raw(result)]),
+                    Line::from(vec![]),
+                    Line::from(vec![Span::raw("Press Esc to dismiss")]),
+                ])
+                .block(Block::default().title("PostgreSQL Connection Test").borders(Borders::ALL))
+                .alignment(Alignment::Center);
+                f.render_widget(popup, area);
+            },
             _ => {
                 let popup = Paragraph::new("Popup content would go here")
                     .block(Block::default().title("Popup").borders(Borders::ALL))
@@ -609,7 +723,7 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
             .style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD));
         f.render_widget(editing_indicator, indicator_area);
     }
-    
+
     // Render popups if needed
     popups::render_popups::<B>(f, app);
 }

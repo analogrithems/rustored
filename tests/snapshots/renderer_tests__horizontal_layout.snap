@@ -12,13 +12,13 @@ expression: horizontal_layout
     Rect {
         x: 30,
         y: 0,
-        width: 40,
+        width: 20,
         height: 50,
     },
     Rect {
-        x: 70,
+        x: 50,
         y: 0,
-        width: 30,
+        width: 50,
         height: 50,
     },
 ]

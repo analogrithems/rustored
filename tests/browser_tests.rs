@@ -20,6 +20,7 @@ fn test_s3_config() {
         secret_access_key: "test-secret-key".to_string(),
         path_style: false,
         error_message: None,
+        test_s3_button: false,
     };
 
     assert_debug_snapshot!(s3_config);
@@ -71,6 +72,7 @@ fn test_s3_config_get_field_value() {
         secret_access_key: "test-secret-key".to_string(),
         path_style: true,
         error_message: None,
+        test_s3_button: false,
     };
     
     // Test getting field values
@@ -97,6 +99,7 @@ fn test_s3_config_set_field_value() {
         secret_access_key: "".to_string(),
         path_style: false,
         error_message: None,
+        test_s3_button: false,
     };
     
     // Test setting field values

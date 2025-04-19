@@ -67,7 +67,8 @@ pub enum PopupState {
     Restoring(BackupMetadata, f32),  // Snapshot being restored, progress percentage
     TestingS3,                       // Testing S3 connection in progress
     TestS3Result(String),            // Result of S3 connection test
-    TestPgResult(String),
+    TestingPg,                       // Testing PostgreSQL connection in progress
+    TestPgResult(String),            // Result of PostgreSQL connection test
     Error(String),
     Success(String),
 }

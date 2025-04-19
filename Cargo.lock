@@ -3142,6 +3142,7 @@ name = "rustored"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "aws-config",
  "aws-sdk-s3",
  "chrono",
@@ -3161,6 +3162,7 @@ dependencies = [
  "qdrant-client",
  "random_word",
  "ratatui",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",

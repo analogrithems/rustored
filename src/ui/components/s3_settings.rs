@@ -2,6 +2,7 @@ use ratatui::{
     backend::Backend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
+    text::{Span, Line},
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
@@ -171,41 +172,31 @@ pub fn render_s3_settings<B: Backend>(f: &mut Frame, app: &RustoredApp, area: Re
         .style(path_style_style);
     f.render_widget(path_style, s3_settings_chunks[6]);
 
-    // Help legend at the bottom of the window
-    let is_s3_focused = matches!(app.focus,
-        FocusField::Bucket |
-        FocusField::Region |
-        FocusField::Prefix |
-        FocusField::EndpointUrl |
-        FocusField::AccessKeyId |
-        FocusField::SecretAccessKey |
-        FocusField::PathStyle
-    );
-    
+
     // Only show S3 connection test option if required fields are set
     let has_required_fields = !app.s3_config.bucket.is_empty() &&
                             !app.s3_config.access_key_id.is_empty() &&
                             !app.s3_config.secret_access_key.is_empty();
-    
+
     // Create help legend text
     let mut help_items = Vec::new();
-    
+
     // Always show navigation help
     help_items.push(Span::styled("↑↓", Style::default().fg(Color::Yellow)));
     help_items.push(Span::raw(" Navigate "));
-    
+
     // Show test connection option if fields are set
     if has_required_fields {
         help_items.push(Span::styled("[t]", Style::default().fg(Color::Yellow)));
         help_items.push(Span::raw(" Test Connection "));
     }
-    
+
     // Create the help legend
     let help_text = Line::from(help_items);
     let help_legend = Paragraph::new(help_text)
         .style(Style::default().fg(Color::Gray))
         .alignment(ratatui::layout::Alignment::Center);
-    
+
     // Render the help legend at the bottom of the window
     f.render_widget(help_legend, s3_settings_chunks[8]);
 }

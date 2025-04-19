@@ -3,7 +3,7 @@ use crate::ui::browser::SnapshotBrowser;
 use ratatui::backend::Backend;
 use ratatui::Terminal;
 use anyhow::{Result, anyhow};
-use log::{debug, info};
+use log::debug;
 
 pub struct RustoredApp {
     pub snapshot_browser: SnapshotBrowser,
@@ -234,11 +234,8 @@ impl RustoredApp {
                         // Cancel editing
                         self.input_mode = InputMode::Normal;
                         self.input_buffer.clear();
-                    } else if matches!(self.popup_state, PopupState::ConfirmRestore(_)) {
-                        // Cancel restore confirmation
-                        self.popup_state = PopupState::Hidden;
-                    } else if matches!(self.popup_state, PopupState::TestingS3 | PopupState::TestS3Result(_)) {
-                        // Dismiss S3 test popup
+                    } else if self.popup_state != PopupState::Hidden {
+                        // Dismiss any popup
                         self.popup_state = PopupState::Hidden;
                     }
                 }
@@ -284,6 +281,30 @@ impl RustoredApp {
                     // Test connection and update popup state with result
                     if let Err(e) = self.s3_config.test_connection(|state| self.popup_state = state).await {
                         debug!("S3 connection test failed: {}", e);
+                    }
+                }
+            },
+            KeyCode::Char('p') => {
+                // Test PostgreSQL connection when focus is on PostgreSQL settings window
+                if matches!(self.focus, 
+                    FocusField::PgHost | 
+                    FocusField::PgPort | 
+                    FocusField::PgUsername | 
+                    FocusField::PgPassword | 
+                    FocusField::PgSsl | 
+                    FocusField::PgDbName
+                ) {
+                    // Only test if required fields are set
+                    if self.pg_config.host.is_some() && 
+                       self.pg_config.port.is_some() && 
+                       self.pg_config.db_name.is_some() {
+                        // Show testing popup
+                        self.popup_state = PopupState::TestingPg;
+                        
+                        // Test connection and update popup state with result
+                        if let Err(e) = self.pg_config.test_connection(|state| self.popup_state = state).await {
+                            debug!("PostgreSQL connection test failed: {}", e);
+                        }
                     }
                 }
             }
@@ -485,72 +506,114 @@ impl RustoredApp {
     }
 
     /// Restore a database from a downloaded snapshot file
+    /// Get the current restore target based on the selected target type
+    fn get_current_restore_target(&self) -> Box<dyn crate::restore::RestoreTarget + Send + Sync> {
+        match self.restore_target {
+            RestoreTarget::Postgres => Box::new(crate::targets::PostgresRestoreTarget {
+                config: self.pg_config.clone(),
+            }),
+            RestoreTarget::Elasticsearch => Box::new(crate::targets::ElasticsearchRestoreTarget {
+                config: self.es_config.clone(),
+            }),
+            RestoreTarget::Qdrant => Box::new(crate::targets::QdrantRestoreTarget {
+                config: self.qdrant_config.clone(),
+            }),
+        }
+    }
+
     pub async fn restore_snapshot<B: Backend>(&mut self, snapshot: &BackupMetadata, terminal: &mut Terminal<B>, file_path: &str) -> Result<()> {
-        let mut progress = 0.0;
-
-        // Update UI to show progress
-        self.popup_state = PopupState::Restoring(snapshot.clone(), progress);
+        use std::path::Path;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        use tokio::time::sleep;
+        use std::time::Duration;
+        
+        // Create the appropriate restore target based on the selected target type
+        let restore_target = self.get_current_restore_target();
+        
+        // Check if the target is properly configured
+        if !restore_target.is_configured() {
+            let required = restore_target.required_fields().join(", ");
+            return Err(anyhow!("Restore target not properly configured. Required fields: {}", required));
+        }
+        
+        // Update UI to show initial progress
+        self.popup_state = PopupState::Restoring(snapshot.clone(), 0.0);
         terminal.draw(|f| crate::ui::renderer::ui::<B>(f, self))?;
-
-        let result = match self.restore_target {
-            RestoreTarget::Postgres => {
-                // Get PostgreSQL connection details
-                let host = self.pg_config.host.as_ref().ok_or_else(|| anyhow!("PostgreSQL host not specified"))?.clone();
-                let port = self.pg_config.port.ok_or_else(|| anyhow!("PostgreSQL port not specified"))?;
-                let username = self.pg_config.username.clone();
-                let password = self.pg_config.password.clone();
-                let use_ssl = self.pg_config.use_ssl;
-
-                // Call the PostgreSQL restore function
-                debug!("Restoring to PostgreSQL at {}:{}", host, port);
-                crate::postgres::restore_snapshot(
-                    &host,
-                    port,
-                    username,
-                    password,
-                    use_ssl,
-                    file_path,
-                ).await.map(|db_name| {
-                    info!("Restored to PostgreSQL database: {}", db_name);
-                })
-            },
-            RestoreTarget::Elasticsearch => {
-                // Get Elasticsearch connection details
-                let host = self.es_config.host.as_ref().ok_or_else(|| anyhow!("Elasticsearch host not specified"))?.clone();
-                let index = self.es_config.index.as_ref().ok_or_else(|| anyhow!("Elasticsearch index not specified"))?.clone();
-
-                // Call the Elasticsearch restore function
-                debug!("Restoring to Elasticsearch at {}, index {}", host, index);
-                crate::datastore::restore_to_elasticsearch(&host, &index, file_path).await
-            },
-            RestoreTarget::Qdrant => {
-                // Get Qdrant connection details
-                let host = self.qdrant_config.host.as_ref().ok_or_else(|| anyhow!("Qdrant host not specified"))?.clone();
-                let collection = self.qdrant_config.collection.as_ref().ok_or_else(|| anyhow!("Qdrant collection not specified"))?.clone();
-                let api_key = self.qdrant_config.api_key.clone();
-
-                // Call the Qdrant restore function
-                debug!("Restoring to Qdrant at {}, collection {}", host, collection);
-                crate::datastore::restore_to_qdrant(&host, &collection, api_key.as_deref(), file_path).await
-            },
+        
+        // Use a separate thread-safe mechanism to track progress
+        let progress = Arc::new(std::sync::Mutex::new(0.0f32));
+        let is_done = Arc::new(AtomicBool::new(false));
+        
+        // Clone for the progress callback
+        let progress_for_callback = Arc::clone(&progress);
+        let is_done_for_callback = Arc::clone(&is_done);
+        
+        // Create a thread-safe progress callback
+        let progress_callback = Box::new(move |prog: f32| {
+            // Update the shared progress value
+            if let Ok(mut p) = progress_for_callback.lock() {
+                *p = prog;
+                
+                // If we're at 100%, mark as done
+                if prog >= 1.0 {
+                    is_done_for_callback.store(true, Ordering::SeqCst);
+                }
+            }
+        });
+        
+        // Start the restore operation in the background
+        let file_path_owned = file_path.to_string();
+        let restore_handle = tokio::spawn(async move {
+            let path = Path::new(&file_path_owned);
+            restore_target.restore_snapshot(path, Some(progress_callback)).await
+        });
+        
+        // Update the UI periodically while the restore is in progress
+        let snapshot_clone = snapshot.clone();
+        while !is_done.load(Ordering::SeqCst) {
+            // Get the current progress
+            let current_progress = if let Ok(p) = progress.lock() {
+                *p
+            } else {
+                0.0
+            };
+            
+            // Update the UI
+            self.popup_state = PopupState::Restoring(snapshot_clone.clone(), current_progress);
+            terminal.draw(|f| crate::ui::renderer::ui::<B>(f, self))?;
+            
+            // Check if the restore operation is done
+            if restore_handle.is_finished() {
+                break;
+            }
+            
+            // Wait a short time before updating again
+            sleep(Duration::from_millis(100)).await;
+        }
+        
+        // Get the result of the restore operation
+        let result = match restore_handle.await {
+            Ok(res) => res,
+            Err(e) => Err(anyhow!("Restore task failed: {}", e)),
         };
-
-        // Update progress and UI
-        progress = 1.0;
-        self.popup_state = PopupState::Restoring(snapshot.clone(), progress);
-        terminal.draw(|f| crate::ui::renderer::ui::<B>(f, self))?;
-
+        
         // Handle the result
         match result {
-            Ok(_) => {
-                debug!("Restore completed successfully");
-                // Show final status message
+            Ok(message) => {
+                debug!("{}", message);
+                // Show success message
+                self.popup_state = PopupState::Success(message);
                 terminal.draw(|f| crate::ui::renderer::ui::<B>(f, self))?;
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 Ok(())
             },
             Err(e) => {
                 debug!("Restore failed: {}", e);
+                // Show error message
+                self.popup_state = PopupState::Error(format!("Restore failed: {}", e));
+                terminal.draw(|f| crate::ui::renderer::ui::<B>(f, self))?;
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 Err(anyhow!("Restore failed: {}", e))
             }
         }

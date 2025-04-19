@@ -6,5 +6,5 @@ Rect {
     x: 30,
     y: 18,
     width: 40,
-    height: 30,
+    height: 15,
 }
