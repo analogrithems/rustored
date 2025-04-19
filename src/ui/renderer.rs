@@ -3,14 +3,13 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Span, Line},
-    widgets::{Block, Borders, Clear, Gauge, List, ListItem, Paragraph, Tabs},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Clear, Tabs},
     Frame,
 };
 use chrono::{DateTime, Utc};
 
 use crate::ui::models::{FocusField, PopupState};
 use crate::ui::browser::SnapshotBrowser;
-use crate::ui::restore_browser::RestoreBrowser;
 
 /// Helper function to create a centered rect
 pub fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
@@ -40,7 +39,6 @@ pub fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
 }
 
 /// Render the UI
-/// Render the main UI for the SnapshotBrowser
 pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     // We'll handle the editing mode overlay at the end to ensure it doesn't hide the UI
     // Create the layout
@@ -104,12 +102,12 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
             .constraints(vec![Constraint::Length(1); 6])
             .split(restore_chunks[1]);
         let fields = [
-            (crate::ui::models::FocusField::PgHost, format!("Host: {}", browser.postgres_config.as_ref().and_then(|pg| pg.host.as_deref()).unwrap_or(""))),
-            (crate::ui::models::FocusField::PgPort, format!("Port: {}", browser.postgres_config.as_ref().and_then(|pg| pg.port.map(|p| p.to_string())).unwrap_or_default())),
-            (crate::ui::models::FocusField::PgUsername, format!("Username: {}", browser.postgres_config.as_ref().and_then(|pg| pg.username.as_deref()).unwrap_or(""))),
-            (crate::ui::models::FocusField::PgPassword, format!("Password: {}", if browser.postgres_config.as_ref().and_then(|pg| pg.password.clone()).is_some() { "********" } else { "" })),
-            (crate::ui::models::FocusField::PgSsl, format!("SSL: {}", browser.postgres_config.as_ref().map(|pg| pg.use_ssl).unwrap_or_default())),
-            (crate::ui::models::FocusField::PgDbName, format!("Database: {}", browser.postgres_config.as_ref().and_then(|pg| pg.db_name.as_deref()).unwrap_or(""))),
+            (crate::ui::models::FocusField::PgHost, format!("Host: {}", browser.pg_config.host.as_deref().unwrap_or(""))),
+            (crate::ui::models::FocusField::PgPort, format!("Port: {}", browser.pg_config.port.map(|p| p.to_string()).unwrap_or_default())),
+            (crate::ui::models::FocusField::PgUsername, format!("Username: {}", browser.pg_config.username.as_deref().unwrap_or(""))),
+            (crate::ui::models::FocusField::PgPassword, format!("Password: {}", if browser.pg_config.password.is_some() { "********" } else { "" })),
+            (crate::ui::models::FocusField::PgSsl, format!("SSL: {}", browser.pg_config.use_ssl)),
+            (crate::ui::models::FocusField::PgDbName, format!("Database: {}", browser.pg_config.db_name.as_deref().unwrap_or(""))),
         ];
         for (i, (focus_field, text)) in fields.iter().enumerate() {
             let style = if browser.focus == *focus_field {
@@ -134,33 +132,21 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         match browser.restore_target {
             crate::ui::models::RestoreTarget::Postgres => {
                 // Postgres connection fields
-                if let Some(pg_config) = &browser.postgres_config {
-                    conn_lines.push(Line::from(format!("Host: {}", pg_config.host.as_deref().unwrap_or(""))));
-                    conn_lines.push(Line::from(format!("Port: {}", pg_config.port.map(|p| p.to_string()).unwrap_or_default())));
-                    conn_lines.push(Line::from(format!("Username: {}", pg_config.username.as_deref().unwrap_or(""))));
-                    conn_lines.push(Line::from(format!("Password: {}", if pg_config.password.is_some() { "********" } else { "" })));
-                    conn_lines.push(Line::from(format!("SSL: {}", pg_config.use_ssl)));
-                    conn_lines.push(Line::from(format!("Database: {}", pg_config.db_name.as_deref().unwrap_or(""))));
-                } else {
-                    conn_lines.push(Line::from("PostgreSQL config not initialized"));
-                }
+                conn_lines.push(Line::from(format!("Host: {}", browser.pg_config.host.as_deref().unwrap_or(""))));
+                conn_lines.push(Line::from(format!("Port: {}", browser.pg_config.port.map(|p| p.to_string()).unwrap_or_default())));
+                conn_lines.push(Line::from(format!("Username: {}", browser.pg_config.username.as_deref().unwrap_or(""))));
+                conn_lines.push(Line::from(format!("Password: {}", if browser.pg_config.password.is_some() { "********" } else { "" })));
+                conn_lines.push(Line::from(format!("SSL: {}", browser.pg_config.use_ssl)));
+                conn_lines.push(Line::from(format!("Database: {}", browser.pg_config.db_name.as_deref().unwrap_or(""))));
             },
             crate::ui::models::RestoreTarget::Elasticsearch => {
-                if let Some(es_config) = &browser.elasticsearch_config {
-                    conn_lines.push(Line::from(format!("Elasticsearch Host: {}", es_config.host.as_deref().unwrap_or(""))));
-                    conn_lines.push(Line::from(format!("Index: {}", es_config.index.as_deref().unwrap_or(""))));
-                } else {
-                    conn_lines.push(Line::from("Elasticsearch config not initialized"));
-                }
+                conn_lines.push(Line::from(format!("Elasticsearch Host: {}", browser.es_host.as_deref().unwrap_or(""))));
+                conn_lines.push(Line::from(format!("Index: {}", browser.es_index.as_deref().unwrap_or(""))));
             },
             crate::ui::models::RestoreTarget::Qdrant => {
-                if let Some(qdrant_config) = &browser.qdrant_config {
-                    conn_lines.push(Line::from(format!("Qdrant Host: {}", qdrant_config.host.as_deref().unwrap_or(""))));
-                    conn_lines.push(Line::from(format!("Collection: {}", qdrant_config.collection.as_deref().unwrap_or(""))));
-                    conn_lines.push(Line::from(format!("API Key: {}", qdrant_config.api_key.as_deref().unwrap_or(""))));
-                } else {
-                    conn_lines.push(Line::from("Qdrant config not initialized"));
-                }
+                conn_lines.push(Line::from(format!("Qdrant Host: {}", browser.es_host.as_deref().unwrap_or(""))));
+                conn_lines.push(Line::from(format!("Collection: {}", browser.es_index.as_deref().unwrap_or(""))));
+                conn_lines.push(Line::from(format!("API Key: {}", browser.qdrant_api_key.as_deref().unwrap_or(""))));
             },
         }
         let conn_block = Paragraph::new(conn_lines)
@@ -618,136 +604,5 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         let editing_indicator = Paragraph::new("EDITING MODE")
             .style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD));
         f.render_widget(editing_indicator, indicator_area);
-    }
-}
-
-/// Render the UI for the RestoreBrowser
-pub fn restore_ui<B: Backend>(f: &mut Frame, browser: &mut RestoreBrowser) {
-    // Create the layout
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),  // Title
-            Constraint::Min(10),    // Main content
-            Constraint::Length(3),  // Status bar
-        ])
-        .split(f.size());
-
-    // Title
-    let title = Paragraph::new("Restore Snapshot")
-        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-        .alignment(Alignment::Center);
-    f.render_widget(title, chunks[0]);
-
-    // Main content area - depends on restore target
-    let content_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),  // Restore target
-            Constraint::Min(5),     // Connection settings
-        ])
-        .margin(1)
-        .split(chunks[1]);
-
-    // Restore target
-    let target_text = format!("Restore Target: {:?}", browser.restore_target);
-    let target_para = Paragraph::new(target_text)
-        .style(Style::default().fg(Color::Yellow));
-    f.render_widget(target_para, content_chunks[0]);
-
-    // Connection settings
-    let mut conn_lines = vec![];
-    match browser.restore_target {
-        crate::ui::models::RestoreTarget::Postgres => {
-            // Postgres connection fields
-            if let Some(pg_config) = &browser.postgres_config {
-                conn_lines.push(Line::from(format!("Host: {}", pg_config.host.as_deref().unwrap_or(""))));
-                conn_lines.push(Line::from(format!("Port: {}", pg_config.port.map(|p| p.to_string()).unwrap_or_default())));
-                conn_lines.push(Line::from(format!("Username: {}", pg_config.username.as_deref().unwrap_or(""))));
-                conn_lines.push(Line::from(format!("Password: {}", if pg_config.password.is_some() { "********" } else { "" })));
-                conn_lines.push(Line::from(format!("SSL: {}", pg_config.use_ssl)));
-                conn_lines.push(Line::from(format!("Database: {}", pg_config.db_name.as_deref().unwrap_or(""))));
-            } else {
-                conn_lines.push(Line::from("PostgreSQL config not initialized"));
-            }
-        },
-        crate::ui::models::RestoreTarget::Elasticsearch => {
-            if let Some(es_config) = &browser.elasticsearch_config {
-                conn_lines.push(Line::from(format!("Elasticsearch Host: {}", es_config.host.as_deref().unwrap_or(""))));
-                conn_lines.push(Line::from(format!("Index: {}", es_config.index.as_deref().unwrap_or(""))));
-            } else {
-                conn_lines.push(Line::from("Elasticsearch config not initialized"));
-            }
-        },
-        crate::ui::models::RestoreTarget::Qdrant => {
-            if let Some(qdrant_config) = &browser.qdrant_config {
-                conn_lines.push(Line::from(format!("Qdrant Host: {}", qdrant_config.host.as_deref().unwrap_or(""))));
-                conn_lines.push(Line::from(format!("Collection: {}", qdrant_config.collection.as_deref().unwrap_or(""))));
-                conn_lines.push(Line::from(format!("API Key: {}", qdrant_config.api_key.as_deref().unwrap_or(""))));
-            } else {
-                conn_lines.push(Line::from("Qdrant config not initialized"));
-            }
-        },
-    }
-    let conn_block = Paragraph::new(conn_lines)
-        .block(Block::default().borders(Borders::ALL).title("Connection Settings"));
-    f.render_widget(conn_block, content_chunks[1]);
-
-    // Status bar
-    let status = match &browser.popup_state {
-        PopupState::Hidden => "Press Esc to cancel, Enter to confirm".to_string(),
-        PopupState::Error(msg) => format!("Error: {}", msg),
-        PopupState::Success(msg) => format!("Success: {}", msg),
-        PopupState::Restoring(snapshot, progress) => {
-            format!("Restoring {} ({:.1}%)...", snapshot.key, progress * 100.0)
-        },
-        _ => String::new(),
-    };
-    let status_style = match &browser.popup_state {
-        PopupState::Error(_) => Style::default().fg(Color::Red),
-        PopupState::Success(_) => Style::default().fg(Color::Green),
-        _ => Style::default(),
-    };
-    let status_para = Paragraph::new(status)
-        .style(status_style)
-        .alignment(Alignment::Center);
-    f.render_widget(status_para, chunks[2]);
-
-    // Handle popup states that need overlays
-    match &browser.popup_state {
-        PopupState::Restoring(snapshot, progress) => {
-            // Show a progress bar overlay
-            let popup_area = centered_rect(60, 10, f.size());
-            let popup_chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(2),  // Title
-                    Constraint::Length(1),  // Progress text
-                    Constraint::Length(1),  // Progress bar
-                    Constraint::Length(1),  // Empty space
-                ])
-                .margin(1)
-                .split(popup_area);
-
-            let popup_title = format!("Restoring {}", snapshot.key);
-            let popup_block = Block::default()
-                .title(popup_title)
-                .borders(Borders::ALL)
-                .style(Style::default().bg(Color::DarkGray));
-            f.render_widget(Clear, popup_area);
-            f.render_widget(popup_block, popup_area);
-
-            let progress_text = format!("Progress: {:.1}%", progress * 100.0);
-            let progress_para = Paragraph::new(progress_text)
-                .alignment(Alignment::Center);
-            f.render_widget(progress_para, popup_chunks[1]);
-
-            let gauge = Gauge::default()
-                .block(Block::default())
-                .gauge_style(Style::default().fg(Color::Green))
-                .percent((*progress * 100.0) as u16);
-            f.render_widget(gauge, popup_chunks[2]);
-        },
-        _ => {},
     }
 }

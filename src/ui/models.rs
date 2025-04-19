@@ -59,7 +59,6 @@ pub struct BackupMetadata {
 
 /// State of the popup
 #[derive(Debug, PartialEq)]
-#[derive(Clone)]
 pub enum PopupState {
     Hidden,
     ConfirmRestore(BackupMetadata),

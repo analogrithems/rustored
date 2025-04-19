@@ -1,8 +1,8 @@
 <!-- markdownlint-disable MD034 -->
 
-# Rustored v0.2.0 (2025-04-18)
+# Rustored v0.1.0 (2025-04-18)
 
-![Version](https://img.shields.io/badge/version-0.2.0-blue)
+![Version](https://img.shields.io/badge/version-0.1.0-blue)
 ![Rustored Logo](logo.png)
 [*] — Dont panic, your data is safe!
 
@@ -14,8 +14,6 @@ Rustored is a terminal-based CLI and TUI application for downloading and restori
 - Download snapshots with progress feedback
 - Restore snapshots to Postgres, Elasticsearch, or Qdrant
 - Flexible configuration via CLI flags or environment variables
-- Modular architecture with separate components for browsing and restoring
-- Automatic loading of configuration from environment variables
 
 ## Installation
 
