@@ -31,7 +31,8 @@ pub struct SnapshotBrowser {
 impl SnapshotBrowser {
     /// Create a new SnapshotBrowser with default settings
     pub fn new(s3_config: S3Config) -> Self {
-        Self {
+        debug!("Creating new SnapshotBrowser with S3 config: {:?}", s3_config);
+        let browser = Self {
             s3_config,
             s3_client: None,
             focus: FocusField::SnapshotList,
@@ -40,13 +41,25 @@ impl SnapshotBrowser {
             snapshots: Vec::new(),
             selected_index: 0,
             popup_state: PopupState::Hidden,
-        }
+        };
+        debug!("Created new SnapshotBrowser instance");
+        browser
     }
 
     /// Initialize the S3 client based on current settings
     pub async fn init_client(&mut self) -> Result<()> {
-        self.s3_client = Some(self.s3_config.create_client()?);
-        Ok(())
+        debug!("Initializing S3 client with config: {:?}", self.s3_config);
+        match self.s3_config.create_client() {
+            Ok(client) => {
+                debug!("Successfully created S3 client");
+                self.s3_client = Some(client);
+                Ok(())
+            },
+            Err(e) => {
+                warn!("Failed to create S3 client: {}", e);
+                Err(anyhow!("Failed to create S3 client: {}", e))
+            }
+        }
     }
 
     /// Load snapshots from S3

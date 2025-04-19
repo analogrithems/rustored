@@ -6,6 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
+use log::debug;
 
 use crate::ui::layouts::centered_rect;
 use crate::ui::models::PopupState;
@@ -13,10 +14,13 @@ use crate::ui::rustored::RustoredApp;
 
 /// Render popups based on the current popup state
 pub fn render_popups<B: Backend>(f: &mut Frame, app: &RustoredApp) {
+    debug!("Starting to render popup with state: {:?}", app.popup_state);
     // Show popup if needed - render last to ensure they're on top
     match &app.popup_state {
         PopupState::ConfirmRestore(snapshot) => {
+            debug!("Rendering confirm restore popup for snapshot: {}", snapshot.key);
             let area = centered_rect(60, 5, f.size());
+            debug!("Popup area: {:?}", area);
             // Clear the area where the popup will be rendered
             f.render_widget(ratatui::widgets::Clear, area);
             let popup = Paragraph::new(vec![
@@ -27,6 +31,7 @@ pub fn render_popups<B: Backend>(f: &mut Frame, app: &RustoredApp) {
             .block(Block::default().title("Confirm Restore").borders(Borders::ALL))
             .alignment(Alignment::Center);
             f.render_widget(popup, area);
+            debug!("Finished rendering confirm restore popup");
         }
         PopupState::Downloading(snapshot, progress, rate) => {
             let area = centered_rect(60, 5, f.size());

@@ -6,11 +6,22 @@ use ratatui::{
     Frame,
 };
 
+use log::debug;
 use crate::ui::models::{FocusField, RestoreTarget};
 use crate::ui::rustored::RustoredApp;
 
 /// Render restore target section
+/// 
+/// This function is responsible for rendering the restore target selection UI component.
+/// It displays the available restore targets with numeric prefixes as per TDD rule #11.
+/// 
+/// # Arguments
+/// 
+/// * `f` - A mutable reference to the frame for rendering
+/// * `app` - A reference to the application state
+/// * `area` - The area in which to render the component
 pub fn render_restore_target<B: Backend>(f: &mut Frame, app: &RustoredApp, area: Rect) {
+    debug!("Starting to render restore target selection in area: {:?}", area);
     // Restore Target
     let restore_target_block = Block::default()
         .title("Restore Target")
@@ -30,13 +41,16 @@ pub fn render_restore_target<B: Backend>(f: &mut Frame, app: &RustoredApp, area:
         )
         .split(area);
 
-    // Restore Target Tabs
-    let restore_targets = vec!["PostgreSQL", "Elasticsearch", "Qdrant"];
+    // Restore Target Tabs with numeric prefixes as per TDD rule #11
+    let restore_targets = vec!["1. PostgreSQL", "2. Elasticsearch", "3. Qdrant"];
+    debug!("Created restore targets with numeric prefixes: {:?}", restore_targets);
+    
     let restore_target_index = match app.restore_target {
         RestoreTarget::Postgres => 0,
         RestoreTarget::Elasticsearch => 1,
         RestoreTarget::Qdrant => 2,
     };
+    debug!("Current restore target index: {}", restore_target_index);
 
     let restore_target_style = if app.focus == FocusField::RestoreTarget {
         Style::default().fg(Color::Yellow)
@@ -45,7 +59,7 @@ pub fn render_restore_target<B: Backend>(f: &mut Frame, app: &RustoredApp, area:
     };
 
     let restore_target_tabs = Tabs::new(restore_targets)
-        .block(Block::default())
+        .block(Block::default().title(" Restore Target "))
         .select(restore_target_index)
         .style(Style::default())
         .highlight_style(
@@ -54,5 +68,9 @@ pub fn render_restore_target<B: Backend>(f: &mut Frame, app: &RustoredApp, area:
                 .add_modifier(Modifier::BOLD),
         )
         .style(restore_target_style);
+    
+    debug!("Rendering restore target tabs with selected index: {}", restore_target_index);
     f.render_widget(restore_target_tabs, restore_chunks[0]);
+    
+    debug!("Finished rendering restore target selection");
 }

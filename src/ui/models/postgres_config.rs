@@ -1,6 +1,6 @@
 /// Configuration for PostgreSQL connection
 use anyhow::{anyhow, Result};
-use log::info;
+use log::{info, debug};
 use tokio_postgres::Config as PgConfig;
 use crate::postgres;
 use crate::ui::models::PopupState;
@@ -18,6 +18,7 @@ pub struct PostgresConfig {
 impl PostgresConfig {
     /// Get all focus fields for PostgreSQL settings
     pub fn focus_fields() -> &'static [super::FocusField] {
+        debug!("Getting focus fields for PostgreSQL settings");
         use super::FocusField;
         &[
             FocusField::PgHost,

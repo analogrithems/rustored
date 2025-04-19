@@ -1,9 +1,9 @@
-use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
-};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use log::debug;
 
 /// Helper function to create a centered rect
 pub fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
+    debug!("Creating centered rect with percent_x: {}, height: {}, in area: {:?}", percent_x, height, r);
     let popup_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints(
@@ -16,7 +16,7 @@ pub fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
         )
         .split(r);
 
-    Layout::default()
+    let result = Layout::default()
         .direction(Direction::Horizontal)
         .constraints(
             [
@@ -26,5 +26,8 @@ pub fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
             ]
             .as_ref(),
         )
-        .split(popup_layout[1])[1]
+        .split(popup_layout[1])[1];
+    
+    debug!("Created centered rect: {:?}", result);
+    result
 }

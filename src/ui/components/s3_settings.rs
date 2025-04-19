@@ -7,11 +7,15 @@ use ratatui::{
     Frame,
 };
 
+use log::debug;
 use crate::ui::models::{FocusField, InputMode};
 use crate::ui::rustored::RustoredApp;
 
 /// Render S3 settings section
 pub fn render_s3_settings<B: Backend>(f: &mut Frame, app: &RustoredApp, area: Rect) {
+    debug!("Starting to render S3 settings in area: {:?}", area);
+    debug!("Rendering S3 settings with focus: {:?}", app.focus);
+    debug!("Rendering S3 settings with input mode: {:?}", app.input_mode);
     // S3 Settings
     let s3_settings_block = Block::default()
         .title("S3 Settings")
@@ -19,6 +23,7 @@ pub fn render_s3_settings<B: Backend>(f: &mut Frame, app: &RustoredApp, area: Re
     f.render_widget(s3_settings_block, area);
 
     // Create layout for S3 settings fields
+    // As per TDD rule #10, navigation help text should be at the bottom
     let s3_settings_chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
@@ -32,11 +37,13 @@ pub fn render_s3_settings<B: Backend>(f: &mut Frame, app: &RustoredApp, area: Re
                 Constraint::Length(1), // Secret Access Key
                 Constraint::Length(1), // Path Style
                 Constraint::Min(1),    // Flexible space
-                Constraint::Length(1), // Help legend
+                Constraint::Length(1), // Help legend (at the bottom as per TDD rule #10)
             ]
             .as_ref(),
         )
         .split(area);
+    
+    debug!("Created S3 settings layout with navigation help at the bottom (TDD rule #10)");
 
     // Bucket
     let bucket_style = if app.focus == FocusField::Bucket {
@@ -191,12 +198,14 @@ pub fn render_s3_settings<B: Backend>(f: &mut Frame, app: &RustoredApp, area: Re
         help_items.push(Span::raw(" Test Connection "));
     }
 
-    // Create the help legend
+    // Create the help legend and place it at the bottom as per TDD rule #10
     let help_text = Line::from(help_items);
     let help_legend = Paragraph::new(help_text)
         .style(Style::default().fg(Color::Gray))
-        .alignment(ratatui::layout::Alignment::Center);
-
-    // Render the help legend at the bottom of the window
+        .alignment(ratatui::layout::Alignment::Left);
+    
+    debug!("Rendering navigation help text at the bottom of S3 settings (TDD rule #10)");
     f.render_widget(help_legend, s3_settings_chunks[8]);
+    
+    debug!("Finished rendering S3 settings");
 }

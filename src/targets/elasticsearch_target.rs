@@ -13,14 +13,19 @@ pub struct ElasticsearchRestoreTarget {
 #[async_trait]
 impl RestoreTarget for ElasticsearchRestoreTarget {
     fn name(&self) -> &'static str {
+        debug!("Getting name for Elasticsearch restore target");
         "Elasticsearch"
     }
 
     fn is_configured(&self) -> bool {
-        self.config.host.is_some() && self.config.index.is_some()
+        debug!("Checking if Elasticsearch target is configured");
+        let configured = self.config.host.is_some() && self.config.index.is_some();
+        debug!("Elasticsearch target configured: {}", configured);
+        configured
     }
 
     fn required_fields(&self) -> Vec<&'static str> {
+        debug!("Getting required fields for Elasticsearch target");
         vec!["host", "index"]
     }
 
@@ -61,15 +66,29 @@ impl RestoreTarget for ElasticsearchRestoreTarget {
     }
 
     async fn test_connection(&self) -> Result<String> {
+        debug!("Testing connection to Elasticsearch");
+        
         // Get Elasticsearch connection details
-        let host = self.config.host.as_ref().ok_or_else(|| anyhow!("Elasticsearch host not specified"))?.clone();
+        let host = match self.config.host.as_ref() {
+            Some(h) => {
+                debug!("Using Elasticsearch host: {}", h);
+                h.clone()
+            },
+            None => {
+                debug!("Elasticsearch host not specified");
+                return Err(anyhow!("Elasticsearch host not specified"));
+            }
+        };
         
         // Simple connection test - in a real implementation, this would use the Elasticsearch client
         // to check if the server is reachable
+        debug!("Validating Elasticsearch host URL format");
         if host.starts_with("http://") || host.starts_with("https://") {
             // For now, just return success since we don't have a real implementation
+            debug!("Elasticsearch URL format is valid, connection test passed");
             Ok(format!("Successfully connected to Elasticsearch at {}", host))
         } else {
+            debug!("Invalid Elasticsearch host URL format: {}", host);
             Err(anyhow!("Invalid Elasticsearch host URL: {}", host))
         }
     }
