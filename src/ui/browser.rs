@@ -712,7 +712,7 @@ pub async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut browser: Snapsh
                                 if let Some(snapshot) = browser.selected_snapshot() {
                                     browser.popup_state = PopupState::ConfirmRestore(snapshot.clone());
                                 }
-                            }
+                            } 
                         },
                         KeyCode::Tab => {
                             browser.focus = match browser.focus {

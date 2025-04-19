@@ -118,17 +118,22 @@ impl fmt::Display for FocusField {
             FocusField::AccessKeyId => write!(f, "Access Key ID"),
             FocusField::SecretAccessKey => write!(f, "Secret Access Key"),
             FocusField::PathStyle => write!(f, "Path Style"),
+            FocusField::SnapshotList => write!(f, "Snapshot List"),
+
+            // Datastore Settings
+            FocusField::RestoreTarget => write!(f, "Restore Target"),
+            // PostgreSQL Settings (20-29)
             FocusField::PgHost => write!(f, "PostgreSQL Host"),
             FocusField::PgPort => write!(f, "PostgreSQL Port"),
             FocusField::PgUsername => write!(f, "PostgreSQL Username"),
             FocusField::PgPassword => write!(f, "PostgreSQL Password"),
             FocusField::PgSsl => write!(f, "PostgreSQL SSL"),
             FocusField::PgDbName => write!(f, "PostgreSQL Database"),
-            FocusField::SnapshotList => write!(f, "Snapshot List"),
-        FocusField::RestoreTarget => write!(f, "Restore Target"),
-        FocusField::EsHost => write!(f, "Elasticsearch/Qdrant Host"),
-        FocusField::EsIndex => write!(f, "Index/Collection"),
-        FocusField::QdrantApiKey => write!(f, "Qdrant API Key"),
+            // Elasticsearch Settings (30-39)
+            FocusField::EsHost => write!(f, "Elasticsearch/Qdrant Host"),
+            FocusField::EsIndex => write!(f, "Index/Collection"),
+            // Qdrant Settings (40-49)
+            FocusField::QdrantApiKey => write!(f, "Qdrant API Key"),
         }
     }
 }

@@ -2,8 +2,8 @@ use ratatui::{
     backend::Backend,
     layout::{Constraint, Direction, Layout, Alignment, Rect},
     style::{Color, Modifier, Style},
-    text::{Span, Line},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Clear},
+    text::{Span, Spans, Line},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Clear, Tabs},
     Frame,
 };
 use chrono::{DateTime, Utc};
@@ -61,15 +61,21 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         .alignment(Alignment::Center);
     f.render_widget(title, chunks[0]);
 
-    // Restore Target Selection
-    let restore_target_text = match browser.restore_target {
-        crate::ui::models::RestoreTarget::Postgres => "Postgres",
-        crate::ui::models::RestoreTarget::Elasticsearch => "Elasticsearch",
-        crate::ui::models::RestoreTarget::Qdrant => "Qdrant",
+    // Restore Target Tabs
+    let titles = ["Postgres", "Elasticsearch", "Qdrant"]
+        .iter()
+        .map(|t| Spans::from(Span::raw(*t)))
+        .collect();
+    let selected = match browser.restore_target {
+        crate::ui::models::RestoreTarget::Postgres => 0,
+        crate::ui::models::RestoreTarget::Elasticsearch => 1,
+        crate::ui::models::RestoreTarget::Qdrant => 2,
     };
-    let restore_target_para = Paragraph::new(format!("Restore Target: {} (Tab to change)", restore_target_text))
-        .style(Style::default().fg(Color::Yellow));
-    f.render_widget(restore_target_para, chunks[1]);
+    let tabs = Tabs::new(titles)
+        .block(Block::default().borders(Borders::ALL).title("Restore Target"))
+        .highlight_style(Style::default().fg(Color::Green))
+        .select(selected);
+    f.render_widget(tabs, chunks[1]);
 
     // Restore Target Connection Fields
     let mut conn_lines = vec![];
