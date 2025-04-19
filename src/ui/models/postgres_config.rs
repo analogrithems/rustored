@@ -32,6 +32,7 @@ impl PostgresConfig {
 
     /// Get the field value for a given focus field
     pub fn get_field_value(&self, field: super::FocusField) -> String {
+        debug!("Getting field value for {:?} in PostgreSQL config", field);
         use super::FocusField;
         match field {
             FocusField::PgHost => self.host.clone().unwrap_or_default(),
@@ -46,6 +47,7 @@ impl PostgresConfig {
 
     /// Set a field value from a string
     pub fn set_field_value(&mut self, field: super::FocusField, value: String) {
+        debug!("Setting field {:?} to new value in PostgreSQL config", field);
         use super::FocusField;
         match field {
             FocusField::PgHost => self.host = Some(value),
@@ -60,6 +62,7 @@ impl PostgresConfig {
 
     /// Check if a focus field belongs to this config
     pub fn contains_field(field: super::FocusField) -> bool {
+        debug!("Checking if field {:?} belongs to PostgreSQL config", field);
         use super::FocusField;
         matches!(field, 
             FocusField::PgHost | 

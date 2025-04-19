@@ -1,4 +1,5 @@
 use ratatui::{
+    backend::Backend,
     layout::{Constraint, Direction, Layout, Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Span, Line},
@@ -20,7 +21,10 @@ use crate::ui::rustored::RustoredApp;
 /// * `f` - A mutable reference to the frame for rendering
 /// * `app` - A reference to the application state
 /// * `area` - The area in which to render the component
-pub fn render_postgres_settings(f: &mut Frame, app: &RustoredApp, area: Rect) {
+pub fn render_postgres_settings<B: Backend>(f: &mut Frame, app: &RustoredApp, area: Rect) {
+    log::debug!("Starting to render PostgreSQL settings in area: {:?}", area);
+    log::debug!("Rendering PostgreSQL settings with focus: {:?}", app.focus);
+    log::debug!("Rendering PostgreSQL settings with input mode: {:?}", app.input_mode);
     // Log the rendering of PostgreSQL settings
     debug!("Rendering PostgreSQL settings in area: {:?}", area);
 

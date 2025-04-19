@@ -19,6 +19,7 @@ pub struct S3Config {
 
 impl Default for S3Config {
     fn default() -> Self {
+        log::debug!("Creating default S3Config instance");
         Self {
             bucket: String::from("my-bucket"),
             region: String::from("us-west-2"),
@@ -36,6 +37,7 @@ impl Default for S3Config {
 impl S3Config {
     /// Get all focus fields for S3 settings
     pub fn focus_fields() -> &'static [super::FocusField] {
+        log::debug!("Getting focus fields for S3Config");
         use super::FocusField;
         &[
             FocusField::Bucket,
@@ -50,6 +52,7 @@ impl S3Config {
 
     /// Get the field value for a given focus field
     pub fn get_field_value(&self, field: super::FocusField) -> String {
+        log::debug!("Getting field value for {:?}", field);
         use super::FocusField;
         match field {
             FocusField::Bucket => self.bucket.clone(),
@@ -65,6 +68,7 @@ impl S3Config {
 
     /// Set a field value from a string
     pub fn set_field_value(&mut self, field: super::FocusField, value: String) {
+        log::debug!("Setting field {:?} to new value", field);
         use super::FocusField;
         match field {
             FocusField::Bucket => self.bucket = value,
@@ -80,6 +84,7 @@ impl S3Config {
 
     /// Check if a focus field belongs to this config
     pub fn contains_field(field: super::FocusField) -> bool {
+        log::debug!("Checking if field {:?} belongs to S3Config", field);
         use super::FocusField;
         matches!(field,
             FocusField::Bucket |
@@ -94,6 +99,7 @@ impl S3Config {
 
     /// Verify S3 settings are valid
     pub fn verify_settings(&self) -> Result<()> {
+        log::debug!("Verifying S3 settings for bucket: {}, region: {}", self.bucket, self.region);
         if self.bucket.is_empty() {
             return Err(anyhow!("Bucket name is required"));
         }
@@ -114,6 +120,7 @@ impl S3Config {
 
     /// Initialize S3 client with current settings
     pub fn create_client(&self) -> Result<S3Client> {
+        log::debug!("Creating S3 client with endpoint: {}, region: {}", self.endpoint_url, self.region);
         self.verify_settings()?;
 
         let mut config_builder = aws_sdk_s3::config::Builder::new()
@@ -147,11 +154,13 @@ impl S3Config {
         config_builder = config_builder.behavior_version(aws_sdk_s3::config::BehaviorVersion::latest());
 
         let config = config_builder.build();
+        log::debug!("S3 client configuration built successfully");
         Ok(S3Client::from_conf(config))
     }
 
     /// Test S3 connection and return success or error
     pub async fn test_connection(&self, popup_state_setter: impl FnOnce(PopupState)) -> Result<()> {
+        log::debug!("Testing S3 connection to bucket: {}", self.bucket);
         let client = match self.create_client() {
             Ok(client) => client,
             Err(e) => {
@@ -183,6 +192,7 @@ impl S3Config {
     }
 
     pub fn mask_secret(&self, secret: &str) -> String {
+        log::debug!("Masking secret value");
         if secret.is_empty() {
             return String::new();
         }
@@ -196,10 +206,12 @@ impl S3Config {
     }
 
     pub fn masked_access_key(&self) -> String {
+        log::debug!("Getting masked access key");
         self.mask_secret(&self.access_key_id)
     }
 
     pub fn masked_secret_key(&self) -> String {
+        log::debug!("Getting masked secret key");
         if self.secret_access_key.is_empty() {
             return String::new();
         }
@@ -210,6 +222,7 @@ impl S3Config {
     /// Get the display text for the secret access key field
     /// Only shows the actual value when in edit mode
     pub fn get_secret_key_display(&self, is_editing: bool, input_buffer: &str) -> String {
+        log::debug!("Getting secret key display text, is_editing: {}", is_editing);
         if is_editing {
             format!("Secret Access Key: {}", input_buffer)
         } else {

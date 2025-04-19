@@ -70,6 +70,8 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 /// * `f` - A mutable reference to the frame for rendering
 /// * `app` - A mutable reference to the application state
 pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
+    debug!("Starting UI rendering cycle");
+    debug!("Current focus: {:?}, input mode: {:?}", app.focus, app.input_mode);
     // Log the start of UI rendering
     debug!("Starting UI rendering");
     
@@ -127,15 +129,15 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
     match app.restore_target {
         RestoreTarget::Postgres => {
             debug!("Rendering PostgreSQL settings panel");
-            postgres_settings::render_postgres_settings(f, app, top_row[2]);
+            postgres_settings::render_postgres_settings::<B>(f, app, top_row[2]);
         },
         RestoreTarget::Elasticsearch => {
             debug!("Rendering Elasticsearch settings panel");
-            elasticsearch_settings::render_elasticsearch_settings(f, app, top_row[2]);
+            elasticsearch_settings::render_elasticsearch_settings::<B>(f, app, top_row[2]);
         },
         RestoreTarget::Qdrant => {
             debug!("Rendering Qdrant settings panel");
-            qdrant_settings::render_qdrant_settings(f, app, top_row[2]);
+            qdrant_settings::render_qdrant_settings::<B>(f, app, top_row[2]);
         },
     };
     

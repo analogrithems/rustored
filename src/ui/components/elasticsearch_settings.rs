@@ -1,4 +1,5 @@
 use ratatui::{
+    backend::Backend,
     layout::{Constraint, Direction, Layout, Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Span, Line},
@@ -20,7 +21,7 @@ use crate::ui::rustored::RustoredApp;
 /// * `f` - A mutable reference to the frame for rendering
 /// * `app` - A reference to the application state
 /// * `area` - The area in which to render the component
-pub fn render_elasticsearch_settings(f: &mut Frame, app: &RustoredApp, area: Rect) {
+pub fn render_elasticsearch_settings<B: Backend>(f: &mut Frame, app: &RustoredApp, area: Rect) {
     // Log the start of rendering Elasticsearch settings
     debug!("Starting to render Elasticsearch settings in area: {:?}", area);
     // Log the rendering of Elasticsearch settings

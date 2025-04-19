@@ -13,7 +13,7 @@ Rustored uses the [ratatui](https://github.com/ratatui-org/ratatui) library to c
 
 The main layout is defined in `src/ui/renderer.rs`. It splits the screen into two rows and then further divides the top row into three columns:
 
-```
+```ascii
 ┌─────────────────┬─────────────────┬─────────────────┐
 │                 │                 │                 │
 │   S3 Settings   │ Restore Target  │ Target-Specific │

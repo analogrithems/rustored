@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand, command, arg};
 use rustored::postgres;
 use tokio_postgres::config::SslMode;
 use tokio_postgres::Config as PgConfig;
-use log::{error, info, warn, LevelFilter};
+use log::{error, info, warn, debug, LevelFilter};
 use log4rs::{append::file::FileAppender, config::{Appender, Config as LogConfig, Root}, encode::pattern::PatternEncoder};
 use crossterm::{execute, terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}};
 use ratatui::backend::CrosstermBackend;
@@ -169,8 +169,11 @@ enum Commands {
 }
 
 async fn connect(cli: &Cli) -> Result<Option<tokio_postgres::Client>> {
+    debug!("Attempting to connect to PostgreSQL with settings: host={:?}, port={:?}, user={:?}, ssl={}", 
+           cli.host, cli.port, cli.username, cli.use_ssl);
     if !cli.host.is_some() && !cli.port.is_some() && !cli.username.is_some() && !cli.password.is_some() {
         // If no PostgreSQL settings are provided, return None
+        debug!("No PostgreSQL connection settings provided, skipping connection");
         return Ok(None);
     }
 
@@ -209,6 +212,7 @@ async fn connect(cli: &Cli) -> Result<Option<tokio_postgres::Client>> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    debug!("Starting Rustored application");
     // Configure logging
     let logfile = FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S)} {l} {t} - {m}{n}")))

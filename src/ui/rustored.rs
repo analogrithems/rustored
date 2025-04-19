@@ -38,6 +38,13 @@ impl RustoredApp {
         es_index: &Option<String>,
         qdrant_api_key: &Option<String>,
     ) -> Self {
+        debug!("Creating new RustoredApp instance");
+        debug!("S3 settings: bucket: {:?}, region: {:?}, prefix: {:?}, endpoint: {:?}, path_style: {}", 
+               bucket, region, prefix, endpoint_url, path_style);
+        debug!("PostgreSQL settings: host: {:?}, port: {:?}, username: {:?}, use_ssl: {}, db_name: {:?}", 
+               host, port, username, use_ssl, db_name);
+        debug!("Elasticsearch settings: host: {:?}, index: {:?}", es_host, es_index);
+        debug!("Qdrant settings: host: {:?}, collection: {:?}", es_host, es_index);
         let s3_config = S3Config {
             bucket: bucket.clone().unwrap_or_default(),
             region: region.clone().unwrap_or_default(),
@@ -84,12 +91,15 @@ impl RustoredApp {
 
     /// Run the application loop
     pub async fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<Option<String>> {
+        debug!("Starting RustoredApp main loop");
         // Delegate to existing run_app with full app state
         crate::ui::app::run_app(terminal, self).await
     }
 
     /// Handle key events and return a snapshot path if one is downloaded
     pub async fn handle_key_event<B: Backend>(&mut self, key: crossterm::event::KeyEvent) -> Result<Option<String>> {
+        debug!("Handling key event: {:?}", key);
+        debug!("Current focus: {:?}, input mode: {:?}", self.focus, self.input_mode);
         use crossterm::event::{KeyCode, KeyModifiers};
 
         // Handle popup states first
@@ -507,7 +517,8 @@ impl RustoredApp {
 
     /// Restore a database from a downloaded snapshot file
     /// Get the current restore target based on the selected target type
-    fn get_current_restore_target(&self) -> Box<dyn crate::restore::RestoreTarget + Send + Sync> {
+    pub fn get_current_restore_target(&self) -> Box<dyn crate::restore::RestoreTarget + Send + Sync> {
+        debug!("Getting current restore target for type: {:?}", self.restore_target);
         match self.restore_target {
             RestoreTarget::Postgres => Box::new(crate::targets::PostgresRestoreTarget {
                 config: self.pg_config.clone(),
@@ -522,6 +533,8 @@ impl RustoredApp {
     }
 
     pub async fn restore_snapshot<B: Backend>(&mut self, snapshot: &BackupMetadata, terminal: &mut Terminal<B>, file_path: &str) -> Result<()> {
+        debug!("Starting restore of snapshot: {:?} from file: {}", snapshot, file_path);
+        debug!("Using restore target: {:?}", self.restore_target);
         use std::path::Path;
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::Arc;

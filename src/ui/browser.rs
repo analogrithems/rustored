@@ -64,6 +64,7 @@ impl SnapshotBrowser {
 
     /// Load snapshots from S3
     pub async fn load_snapshots(&mut self) -> Result<()> {
+        debug!("Loading snapshots from S3 bucket: {}, prefix: {}", self.s3_config.bucket, self.s3_config.prefix);
         debug!("Loading snapshots from S3");
         
         // Initialize client if needed
@@ -101,6 +102,7 @@ impl SnapshotBrowser {
 
     /// Parse S3 output and populate snapshots
     fn parse_s3_output(&mut self, output: ListObjectsV2Output) {
+        debug!("Parsing S3 output to populate snapshots list");
         self.snapshots.clear();
         self.selected_index = 0;
 
@@ -139,6 +141,7 @@ impl SnapshotBrowser {
         snapshot: &BackupMetadata,
         tmp_path: &Path,
     ) -> Result<Option<String>> {
+        debug!("Downloading snapshot: {} to path: {:?}", snapshot.key, tmp_path);
         if let Some(client) = &self.s3_client {
             self.popup_state = PopupState::Downloading(snapshot.clone(), 0.0, 0.0);
             
@@ -193,6 +196,7 @@ impl SnapshotBrowser {
         snapshot: &BackupMetadata,
         mut file: File,
     ) -> Result<()> {
+        debug!("Saving stream to file for snapshot: {}, size: {} bytes", snapshot.key, snapshot.size);
         let mut body = output.body.into_async_read();
         let size = snapshot.size as f64;
         let mut downloaded: usize = 0;
