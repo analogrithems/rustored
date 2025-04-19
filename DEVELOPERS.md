@@ -25,7 +25,8 @@ The navigation system has been refactored to provide a more intuitive user exper
 
 1. The `RustoredApp.handle_key_event` method processes all key events
 2. Main navigation keys:
-   - **Tab**: Cycles between different sections (S3 Settings, Restore Target, Snapshot List)
+   - **Tab**: Cycles between main window sections (S3 Settings → Restore Target Settings → Snapshot List → S3 Settings)
+   - **Up/Down Arrows** or **j/k**: Navigate within the current window section
    - **1, 2, 3**: Select different restore targets (PostgreSQL, Elasticsearch, Qdrant)
    - **q**: Quits the application
    - **Ctrl+Z**: Suspends the application (Unix systems only)

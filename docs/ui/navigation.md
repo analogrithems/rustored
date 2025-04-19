@@ -17,14 +17,15 @@ The Rustored UI is organized into three main sections:
 
 ## Keyboard Navigation
 
-### Global Navigation
+### Window Navigation
 
 | Key | Action |
 |-----|--------|
-| `Tab` | Cycle between different sections (S3 Settings, Restore Target, Snapshot List) |
+| `Tab` | Cycle between main window sections (S3 Settings → Restore Target Settings → Snapshot List → S3 Settings) |
 | `q` | Quit the application |
 | `Ctrl+Z` | Suspend the application (Unix systems only) |
 | `r` | Reload snapshots from S3 |
+| `t` | When focus is on S3 Settings: Test S3 connection |
 
 ### Restore Target Selection
 
@@ -36,20 +37,22 @@ The Rustored UI is organized into three main sections:
 
 When you select a different restore target, the Restore Settings panel will automatically update to show the appropriate settings for that target. Additionally, the focus will move to the first field in the selected target's settings if it wasn't already on a field for that target.
 
-### Snapshot List Navigation
+### Within-Window Navigation
 
 | Key | Action |
 |-----|--------|
-| `↓` or `j` | Move down in the snapshot list |
-| `↑` or `k` | Move up in the snapshot list |
-| `Enter` | Select the highlighted snapshot for restore |
+| `↓` or `j` | Move to the next field within the current window |
+| `↑` or `k` | Move to the previous field within the current window |
+| `Enter` | When in Snapshot List: Select the highlighted snapshot for restore |
+
+The up/down navigation wraps around within each window section. For example, if you're on the last field in the S3 Settings window and press Down, you'll cycle back to the first field in that window.
 
 ### Field Editing
 
 | Key | Action |
 |-----|--------|
-| `e` | Edit the currently focused field |
-| `Enter` | Save the edited value |
+| `Enter` | When on a field: Enter edit mode for the currently focused field |
+| `Enter` | When already in edit mode: Save the edited value |
 | `Esc` | Cancel editing |
 
 ## Focus Indicators
@@ -68,15 +71,17 @@ Press `Esc` or `Enter` to dismiss most popups.
 
 ## Example Workflow
 
-1. Use `Tab` to navigate to the S3 Settings section
-2. Press `e` to edit fields like bucket name, region, etc.
-3. Press `r` to load snapshots from S3
-4. Use `Tab` to navigate to the Restore Target section
-5. Press `1`, `2`, or `3` to select the desired restore target
-6. Configure the target-specific settings in the Restore Settings panel
-7. Use `Tab` to navigate to the Snapshot List
-8. Use `↓`/`↑` or `j`/`k` to select a snapshot
-9. Press `Enter` to confirm and start the restore process
+1. Use `Tab` to navigate to the S3 Settings window
+2. Use `↓`/`↑` or `j`/`k` to navigate between fields within the S3 Settings window
+3. Press `Enter` to edit the currently focused field
+4. Press `t` to test the S3 connection
+5. Press `r` to load snapshots from S3
+6. Press `Tab` to navigate to the Restore Target Settings window
+7. Press `1`, `2`, or `3` to select the desired restore target
+8. Use `↓`/`↑` or `j`/`k` to navigate between fields within the Restore Target Settings window
+9. Press `Tab` to navigate to the Snapshot List window
+10. Use `↓`/`↑` or `j`/`k` to select a snapshot
+11. Press `Enter` to confirm and start the restore process
 
 ## Implementation Details
 
@@ -85,18 +90,41 @@ The navigation system is implemented in the `RustoredApp.handle_key_event` metho
 When switching between restore targets, the focus is automatically updated to ensure a smooth user experience. This is achieved through the following code in the key event handler:
 
 ```rust
-KeyCode::Char('1') => {
-    self.restore_target = RestoreTarget::Postgres;
-    // Set focus to first PostgreSQL field if not already on a PostgreSQL field
-    if !matches!(self.focus, 
-        FocusField::PgHost | 
-        FocusField::PgPort | 
-        FocusField::PgUsername | 
-        FocusField::PgPassword | 
-        FocusField::PgSsl | 
-        FocusField::PgDbName
-    ) {
-        self.focus = FocusField::PgHost;
+// Tab key handling - only changes window focus
+KeyCode::Tab => {
+    // Cycle between main window sections only
+    self.focus = match self.focus {
+        // S3 Settings fields - move to Restore Target settings
+        FocusField::Bucket | FocusField::Region | /* other S3 fields */ => {
+            // Move to restore target settings
+            match self.restore_target {
+                RestoreTarget::Postgres => FocusField::PgHost,
+                RestoreTarget::Elasticsearch => FocusField::EsHost,
+                RestoreTarget::Qdrant => FocusField::EsHost,
+            }
+        }
+        // Restore Target settings - move to Snapshot List
+        FocusField::PgHost | /* other Postgres fields */ |
+        FocusField::EsHost | /* other ES fields */ => FocusField::SnapshotList,
+        // Snapshot list - move back to S3 Settings
+        FocusField::SnapshotList => FocusField::Bucket,
+        // Default case
+        _ => FocusField::Bucket,
+    };
+}
+
+// Down key handling - navigates within a window
+KeyCode::Down | KeyCode::Char('j') => {
+    if self.focus == FocusField::SnapshotList {
+        // Navigate snapshot list
+        self.snapshot_browser.selected_index = 
+            (self.snapshot_browser.selected_index + 1) % self.snapshot_browser.snapshots.len();
+    } else {
+        // Navigate within settings windows
+        self.focus = match self.focus {
+            // S3 Settings navigation
+            FocusField::Bucket => FocusField::Region,
+            // ... other field navigation logic
+        };
     }
 }
-```

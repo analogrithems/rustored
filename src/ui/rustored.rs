@@ -257,10 +257,30 @@ impl RustoredApp {
                     debug!("Failed to load snapshots: {}", e);
                 }
             }
+            KeyCode::Char('t') => {
+                // Test S3 connection when focus is on S3 settings window
+                if matches!(self.focus, 
+                    FocusField::Bucket | 
+                    FocusField::Region | 
+                    FocusField::Prefix | 
+                    FocusField::EndpointUrl | 
+                    FocusField::AccessKeyId | 
+                    FocusField::SecretAccessKey | 
+                    FocusField::PathStyle
+                ) {
+                    // Show testing popup
+                    self.popup_state = PopupState::TestingS3;
+                    
+                    // Test connection and update popup state with result
+                    if let Err(e) = self.s3_config.test_connection(|state| self.popup_state = state).await {
+                        debug!("S3 connection test failed: {}", e);
+                    }
+                }
+            }
             KeyCode::Tab => {
-                // Cycle between main sections
+                // Cycle between main window sections only
                 self.focus = match self.focus {
-                    // S3 Settings fields
+                    // S3 Settings fields - move to Restore Target settings
                     FocusField::Bucket | 
                     FocusField::Region | 
                     FocusField::Prefix | 
@@ -268,51 +288,119 @@ impl RustoredApp {
                     FocusField::AccessKeyId | 
                     FocusField::SecretAccessKey | 
                     FocusField::PathStyle => {
-                        // Move to next S3 field or to snapshot list
-                        match self.focus {
-                            FocusField::Bucket => FocusField::Region,
-                            FocusField::Region => FocusField::Prefix,
-                            FocusField::Prefix => FocusField::EndpointUrl,
-                            FocusField::EndpointUrl => FocusField::AccessKeyId,
-                            FocusField::AccessKeyId => FocusField::SecretAccessKey,
-                            FocusField::SecretAccessKey => FocusField::PathStyle,
-                            FocusField::PathStyle => FocusField::SnapshotList,
-                            _ => FocusField::SnapshotList,
-                        }
-                    }
-                    // Snapshot list
-                    FocusField::SnapshotList => {
-                        // Move to restore target fields
+                        // Move to restore target settings
                         match self.restore_target {
                             RestoreTarget::Postgres => FocusField::PgHost,
-                            RestoreTarget::Elasticsearch => FocusField::Bucket, // Placeholder, replace with actual ES field
-                            RestoreTarget::Qdrant => FocusField::Bucket, // Placeholder, replace with actual Qdrant field
+                            RestoreTarget::Elasticsearch => FocusField::EsHost,
+                            RestoreTarget::Qdrant => FocusField::EsHost, // This should be updated to QdrantHost when available
                         }
                     }
-                    // Postgres fields
+                    // Restore Target settings - move to Snapshot List
                     FocusField::PgHost | 
                     FocusField::PgPort | 
                     FocusField::PgUsername | 
                     FocusField::PgPassword | 
                     FocusField::PgSsl | 
-                    FocusField::PgDbName => {
-                        // Move to next Postgres field or back to S3 settings
-                        match self.focus {
-                            FocusField::PgHost => FocusField::PgPort,
-                            FocusField::PgPort => FocusField::PgUsername,
-                            FocusField::PgUsername => FocusField::PgPassword,
-                            FocusField::PgPassword => FocusField::PgSsl,
-                            FocusField::PgSsl => FocusField::PgDbName,
-                            FocusField::PgDbName => FocusField::Bucket,
-                            _ => FocusField::Bucket,
-                        }
-                    }
+                    FocusField::PgDbName |
+                    FocusField::EsHost |
+                    FocusField::EsIndex |
+                    FocusField::QdrantApiKey => FocusField::SnapshotList,
+                    // Snapshot list - move back to S3 Settings
+                    FocusField::SnapshotList => FocusField::Bucket,
+                    // Default case
                     _ => FocusField::Bucket,
                 };
             }
+            // The 'e' key is no longer needed for editing as Enter now handles this
             KeyCode::Char('e') => {
-                // Edit field
-                if self.focus != FocusField::SnapshotList {
+                // Keeping this for backward compatibility, but functionality moved to Enter key
+            }
+            // Handle navigation within windows using up/down arrows
+            KeyCode::Down | KeyCode::Char('j') => {
+                if self.focus == FocusField::SnapshotList && !self.snapshot_browser.snapshots.is_empty() {
+                    // Navigate snapshot list
+                    self.snapshot_browser.selected_index = 
+                        (self.snapshot_browser.selected_index + 1) % self.snapshot_browser.snapshots.len();
+                } else {
+                    // Navigate within settings windows
+                    self.focus = match self.focus {
+                        // S3 Settings navigation
+                        FocusField::Bucket => FocusField::Region,
+                        FocusField::Region => FocusField::Prefix,
+                        FocusField::Prefix => FocusField::EndpointUrl,
+                        FocusField::EndpointUrl => FocusField::AccessKeyId,
+                        FocusField::AccessKeyId => FocusField::SecretAccessKey,
+                        FocusField::SecretAccessKey => FocusField::PathStyle,
+                        FocusField::PathStyle => FocusField::Bucket, // Wrap around to first field
+                        
+                        // PostgreSQL Settings navigation
+                        FocusField::PgHost => FocusField::PgPort,
+                        FocusField::PgPort => FocusField::PgUsername,
+                        FocusField::PgUsername => FocusField::PgPassword,
+                        FocusField::PgPassword => FocusField::PgSsl,
+                        FocusField::PgSsl => FocusField::PgDbName,
+                        FocusField::PgDbName => FocusField::PgHost, // Wrap around to first field
+                        
+                        // Elasticsearch Settings navigation
+                        FocusField::EsHost => FocusField::EsIndex,
+                        FocusField::EsIndex => FocusField::EsHost, // Wrap around to first field
+                        
+                        // Qdrant Settings navigation
+                        FocusField::QdrantApiKey => FocusField::QdrantApiKey, // Only one field for now
+                        
+                        // Default case - don't change focus
+                        _ => self.focus,
+                    };
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.focus == FocusField::SnapshotList && !self.snapshot_browser.snapshots.is_empty() {
+                    // Navigate snapshot list
+                    self.snapshot_browser.selected_index = if self.snapshot_browser.selected_index == 0 {
+                        self.snapshot_browser.snapshots.len() - 1
+                    } else {
+                        self.snapshot_browser.selected_index - 1
+                    };
+                } else {
+                    // Navigate within settings windows
+                    self.focus = match self.focus {
+                        // S3 Settings navigation (reverse)
+                        FocusField::Bucket => FocusField::PathStyle,
+                        FocusField::Region => FocusField::Bucket,
+                        FocusField::Prefix => FocusField::Region,
+                        FocusField::EndpointUrl => FocusField::Prefix,
+                        FocusField::AccessKeyId => FocusField::EndpointUrl,
+                        FocusField::SecretAccessKey => FocusField::AccessKeyId,
+                        FocusField::PathStyle => FocusField::SecretAccessKey,
+                        
+                        // PostgreSQL Settings navigation (reverse)
+                        FocusField::PgHost => FocusField::PgDbName,
+                        FocusField::PgPort => FocusField::PgHost,
+                        FocusField::PgUsername => FocusField::PgPort,
+                        FocusField::PgPassword => FocusField::PgUsername,
+                        FocusField::PgSsl => FocusField::PgPassword,
+                        FocusField::PgDbName => FocusField::PgSsl,
+                        
+                        // Elasticsearch Settings navigation (reverse)
+                        FocusField::EsHost => FocusField::EsIndex,
+                        FocusField::EsIndex => FocusField::EsHost,
+                        
+                        // Qdrant Settings navigation (reverse)
+                        FocusField::QdrantApiKey => FocusField::QdrantApiKey, // Only one field for now
+                        
+                        // Default case - don't change focus
+                        _ => self.focus,
+                    };
+                }
+            }
+            KeyCode::Enter => {
+                // Handle different actions based on focus
+                if self.focus == FocusField::SnapshotList && !self.snapshot_browser.snapshots.is_empty() {
+                    // Select snapshot for restore
+                    let snapshot = &self.snapshot_browser.snapshots[self.snapshot_browser.selected_index];
+                    self.popup_state = PopupState::ConfirmRestore(snapshot.clone());
+                } else if self.focus != FocusField::SnapshotList {
+                    // For any field that's not the snapshot list, enter edit mode
                     self.input_mode = InputMode::Editing;
                     // Set input buffer to current value
                     self.input_buffer = match self.focus {
@@ -329,32 +417,11 @@ impl RustoredApp {
                         FocusField::PgPassword => self.pg_config.password.clone().unwrap_or_default(),
                         FocusField::PgSsl => self.pg_config.use_ssl.to_string(),
                         FocusField::PgDbName => self.pg_config.db_name.clone().unwrap_or_default(),
+                        FocusField::EsHost => self.es_config.host.clone().unwrap_or_default(),
+                        FocusField::EsIndex => self.es_config.index.clone().unwrap_or_default(),
+                        FocusField::QdrantApiKey => self.qdrant_config.api_key.clone().unwrap_or_default(),
                         _ => String::new(),
                     };
-                }
-            }
-            // Handle snapshot list navigation when it's focused
-            KeyCode::Down | KeyCode::Char('j') => {
-                if self.focus == FocusField::SnapshotList && !self.snapshot_browser.snapshots.is_empty() {
-                    self.snapshot_browser.selected_index = 
-                        (self.snapshot_browser.selected_index + 1) % self.snapshot_browser.snapshots.len();
-                }
-            }
-            KeyCode::Up | KeyCode::Char('k') => {
-                if self.focus == FocusField::SnapshotList && !self.snapshot_browser.snapshots.is_empty() {
-                    self.snapshot_browser.selected_index = if self.snapshot_browser.selected_index == 0 {
-                        self.snapshot_browser.snapshots.len() - 1
-                    } else {
-                        self.snapshot_browser.selected_index - 1
-                    };
-                }
-            }
-            KeyCode::Enter => {
-                // Handle different actions based on focus
-                if self.focus == FocusField::SnapshotList && !self.snapshot_browser.snapshots.is_empty() {
-                    // Select snapshot for restore
-                    let snapshot = &self.snapshot_browser.snapshots[self.snapshot_browser.selected_index];
-                    self.popup_state = PopupState::ConfirmRestore(snapshot.clone());
                 }
             }
             // Add restore target selection with 1, 2, 3 keys

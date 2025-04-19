@@ -9,6 +9,7 @@ use ratatui::{
 
 use crate::ui::models::{FocusField, InputMode, RestoreTarget, PopupState};
 use crate::ui::rustored::RustoredApp;
+use crate::ui::components::popups;
 
 /// Helper function to create a centered rect using up certain percentage of the available rect
 pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
@@ -590,4 +591,7 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
             .style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD));
         f.render_widget(editing_indicator, indicator_area);
     }
+    
+    // Render popups if needed
+    popups::render_popups::<B>(f, app);
 }

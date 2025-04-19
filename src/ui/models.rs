@@ -65,7 +65,8 @@ pub enum PopupState {
     Downloading(BackupMetadata, f32, f64),
     ConfirmCancel(BackupMetadata, f32, f64),
     Restoring(BackupMetadata, f32),  // Snapshot being restored, progress percentage
-    TestS3Result(String),
+    TestingS3,                       // Testing S3 connection in progress
+    TestS3Result(String),            // Result of S3 connection test
     TestPgResult(String),
     Error(String),
     Success(String),
