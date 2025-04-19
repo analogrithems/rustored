@@ -3,3 +3,4 @@ pub mod models;
 pub mod browser;
 pub mod renderer;
 pub mod rustored;
+pub mod app;

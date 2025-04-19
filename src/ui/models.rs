@@ -1,4 +1,4 @@
-use aws_sdk_s3::primitives::DateTime as AwsDateTime;
+
 use std::fmt;
 use std::fmt::Debug;
 
@@ -54,7 +54,7 @@ pub enum InputMode {
 pub struct BackupMetadata {
     pub key: String,
     pub size: i64,
-    pub last_modified: AwsDateTime,
+    pub last_modified: f64,
 }
 
 /// State of the popup

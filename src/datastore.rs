@@ -1,5 +1,5 @@
-use anyhow::{Result, anyhow};
-use log::{info, error, debug};
+use anyhow::Result;
+use log::{info, debug};
 
 /// Configuration for Elasticsearch
 #[derive(Debug, Clone)]

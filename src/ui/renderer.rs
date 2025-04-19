@@ -8,8 +8,8 @@ use ratatui::{
 };
 use chrono::{DateTime, Utc};
 
-use crate::ui::models::{FocusField, PopupState};
-use crate::ui::browser::SnapshotBrowser;
+use crate::ui::models::{FocusField, PopupState, RestoreTarget, InputMode};
+use crate::ui::rustored::RustoredApp;
 
 /// Helper function to create a centered rect
 pub fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
@@ -39,7 +39,7 @@ pub fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
 }
 
 /// Render the UI
-pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
+pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
     // We'll handle the editing mode overlay at the end to ensure it doesn't hide the UI
     // Create the layout
     let chunks = Layout::default()
@@ -72,10 +72,10 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         .iter()
         .map(|t| Line::from(Span::raw(*t)))
         .collect();
-    let selected = match browser.restore_target {
-        crate::datastore::RestoreTarget::Postgres => 0,
-        crate::datastore::RestoreTarget::Elasticsearch => 1,
-        crate::datastore::RestoreTarget::Qdrant => 2,
+    let selected = match app.restore_target {
+        RestoreTarget::Postgres => 0,
+        RestoreTarget::Elasticsearch => 1,
+        RestoreTarget::Qdrant => 2,
     };
 
     // Tabs at top of restore area
@@ -86,15 +86,15 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     f.render_widget(tabs, restore_chunks[0]);
 
     // Determine block title based on selected datastore
-    let block_title = match browser.restore_target {
-        crate::datastore::RestoreTarget::Postgres => "PostgreSQL Settings",
-        crate::datastore::RestoreTarget::Elasticsearch => "Elasticsearch Settings",
-        crate::datastore::RestoreTarget::Qdrant => "Qdrant Settings",
+    let block_title = match app.restore_target {
+        RestoreTarget::Postgres => "PostgreSQL Settings",
+        RestoreTarget::Elasticsearch => "Elasticsearch Settings",
+        RestoreTarget::Qdrant => "Qdrant Settings",
     };
 
     // Datastore connection fields within a dynamic titled block
     f.render_widget(Block::default().borders(Borders::ALL).title(block_title), restore_chunks[1]);
-    if browser.restore_target == crate::datastore::RestoreTarget::Postgres {
+    if app.restore_target == RestoreTarget::Postgres {
         // Editable PostgresConfig fields
         let field_chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -102,16 +102,16 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
             .constraints(vec![Constraint::Length(1); 6])
             .split(restore_chunks[1]);
         let fields = [
-            (crate::ui::models::FocusField::PgHost, format!("Host: {}", browser.pg_config.host.as_deref().unwrap_or(""))),
-            (crate::ui::models::FocusField::PgPort, format!("Port: {}", browser.pg_config.port.map(|p| p.to_string()).unwrap_or_default())),
-            (crate::ui::models::FocusField::PgUsername, format!("Username: {}", browser.pg_config.username.as_deref().unwrap_or(""))),
-            (crate::ui::models::FocusField::PgPassword, format!("Password: {}", if browser.pg_config.password.is_some() { "********" } else { "" })),
-            (crate::ui::models::FocusField::PgSsl, format!("SSL: {}", browser.pg_config.use_ssl)),
-            (crate::ui::models::FocusField::PgDbName, format!("Database: {}", browser.pg_config.db_name.as_deref().unwrap_or(""))),
+            (FocusField::PgHost, format!("Host: {}", app.pg_config.host.as_deref().unwrap_or(""))),
+            (FocusField::PgPort, format!("Port: {}", app.pg_config.port.map(|p| p.to_string()).unwrap_or_default())),
+            (FocusField::PgUsername, format!("Username: {}", app.pg_config.username.as_deref().unwrap_or(""))),
+            (FocusField::PgPassword, format!("Password: {}", if app.pg_config.password.is_some() { "********" } else { "" })),
+            (FocusField::PgSsl, format!("SSL: {}", app.pg_config.use_ssl)),
+            (FocusField::PgDbName, format!("Database: {}", app.pg_config.db_name.as_deref().unwrap_or(""))),
         ];
         for (i, (focus_field, text)) in fields.iter().enumerate() {
-            let style = if browser.focus == *focus_field {
-                if browser.input_mode == crate::ui::models::InputMode::Editing {
+            let style = if app.focus == *focus_field {
+                if app.input_mode == InputMode::Editing {
                     Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(Color::Yellow)
@@ -119,8 +119,8 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
             } else {
                 Style::default()
             };
-            let content = if browser.focus == *focus_field && browser.input_mode == crate::ui::models::InputMode::Editing {
-                browser.input_buffer.clone()
+            let content = if app.focus == *focus_field && app.input_mode == InputMode::Editing {
+                app.input_buffer.clone()
             } else {
                 text.clone()
             };
@@ -129,24 +129,24 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         }
     } else {
         let mut conn_lines = vec![];
-        match browser.restore_target {
-            crate::datastore::RestoreTarget::Postgres => {
+        match app.restore_target {
+            RestoreTarget::Postgres => {
                 // Postgres connection fields
-                conn_lines.push(Line::from(format!("Host: {}", browser.pg_config.host.as_deref().unwrap_or(""))));
-                conn_lines.push(Line::from(format!("Port: {}", browser.pg_config.port.map(|p| p.to_string()).unwrap_or_default())));
-                conn_lines.push(Line::from(format!("Username: {}", browser.pg_config.username.as_deref().unwrap_or(""))));
-                conn_lines.push(Line::from(format!("Password: {}", if browser.pg_config.password.is_some() { "********" } else { "" })));
-                conn_lines.push(Line::from(format!("SSL: {}", browser.pg_config.use_ssl)));
-                conn_lines.push(Line::from(format!("Database: {}", browser.pg_config.db_name.as_deref().unwrap_or(""))));
+                conn_lines.push(Line::from(format!("Host: {}", app.pg_config.host.as_deref().unwrap_or(""))));
+                conn_lines.push(Line::from(format!("Port: {}", app.pg_config.port.map(|p| p.to_string()).unwrap_or_default())));
+                conn_lines.push(Line::from(format!("Username: {}", app.pg_config.username.as_deref().unwrap_or(""))));
+                conn_lines.push(Line::from(format!("Password: {}", if app.pg_config.password.is_some() { "********" } else { "" })));
+                conn_lines.push(Line::from(format!("SSL: {}", app.pg_config.use_ssl)));
+                conn_lines.push(Line::from(format!("Database: {}", app.pg_config.db_name.as_deref().unwrap_or(""))));
             },
-            crate::datastore::RestoreTarget::Elasticsearch => {
-                conn_lines.push(Line::from(format!("Elasticsearch Host: {}", browser.es_config.host.as_deref().unwrap_or(""))));
-                conn_lines.push(Line::from(format!("Index: {}", browser.es_config.index.as_deref().unwrap_or(""))));
+            RestoreTarget::Elasticsearch => {
+                conn_lines.push(Line::from(format!("Elasticsearch Host: {}", app.es_config.host.as_deref().unwrap_or(""))));
+                conn_lines.push(Line::from(format!("Index: {}", app.es_config.index.as_deref().unwrap_or(""))));
             },
-            crate::datastore::RestoreTarget::Qdrant => {
-                conn_lines.push(Line::from(format!("Qdrant Host: {}", browser.qdrant_config.host.as_deref().unwrap_or(""))));
-                conn_lines.push(Line::from(format!("Collection: {}", browser.qdrant_config.collection.as_deref().unwrap_or(""))));
-                conn_lines.push(Line::from(format!("API Key: {}", browser.qdrant_config.api_key.as_deref().unwrap_or(""))));
+            RestoreTarget::Qdrant => {
+                conn_lines.push(Line::from(format!("Qdrant Host: {}", app.qdrant_config.host.as_deref().unwrap_or(""))));
+                conn_lines.push(Line::from(format!("Collection: {}", app.qdrant_config.collection.as_deref().unwrap_or(""))));
+                conn_lines.push(Line::from(format!("API Key: {}", app.qdrant_config.api_key.as_deref().unwrap_or(""))));
             },
         }
         let conn_block = Paragraph::new(conn_lines)
@@ -169,8 +169,8 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         .split(chunks[2]);
 
     // Bucket
-    let bucket_style = if browser.focus == FocusField::Bucket {
-        if browser.input_mode == crate::ui::models::InputMode::Editing {
+    let bucket_style = if app.focus == FocusField::Bucket {
+        if app.input_mode == InputMode::Editing {
             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Yellow)
@@ -179,10 +179,10 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         Style::default()
     };
 
-    let bucket_text = if browser.focus == FocusField::Bucket && browser.input_mode == crate::ui::models::InputMode::Editing {
-        format!("Bucket: {}", browser.input_buffer)
+    let bucket_text = if app.focus == FocusField::Bucket && app.input_mode == InputMode::Editing {
+        format!("Bucket: {}", app.input_buffer)
     } else {
-        format!("Bucket: {}", browser.s3_config.bucket)
+        format!("Bucket: {}", app.s3_config.bucket)
     };
 
     let bucket = Paragraph::new(bucket_text)
@@ -190,8 +190,8 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     f.render_widget(bucket, s3_settings_chunks[0]);
 
     // Region
-    let region_style = if browser.focus == FocusField::Region {
-        if browser.input_mode == crate::ui::models::InputMode::Editing {
+    let region_style = if app.focus == FocusField::Region {
+        if app.input_mode == InputMode::Editing {
             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Yellow)
@@ -200,10 +200,10 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         Style::default()
     };
 
-    let region_text = if browser.focus == FocusField::Region && browser.input_mode == crate::ui::models::InputMode::Editing {
-        format!("Region: {}", browser.input_buffer)
+    let region_text = if app.focus == FocusField::Region && app.input_mode == InputMode::Editing {
+        format!("Region: {}", app.input_buffer)
     } else {
-        format!("Region: {}", browser.s3_config.region)
+        format!("Region: {}", app.s3_config.region)
     };
 
     let region = Paragraph::new(region_text)
@@ -211,8 +211,8 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     f.render_widget(region, s3_settings_chunks[1]);
 
     // Prefix
-    let prefix_style = if browser.focus == FocusField::Prefix {
-        if browser.input_mode == crate::ui::models::InputMode::Editing {
+    let prefix_style = if app.focus == FocusField::Prefix {
+        if app.input_mode == InputMode::Editing {
             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Yellow)
@@ -221,10 +221,10 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         Style::default()
     };
 
-    let prefix_text = if browser.focus == FocusField::Prefix && browser.input_mode == crate::ui::models::InputMode::Editing {
-        format!("Prefix: {}", browser.input_buffer)
+    let prefix_text = if app.focus == FocusField::Prefix && app.input_mode == InputMode::Editing {
+        format!("Prefix: {}", app.input_buffer)
     } else {
-        format!("Prefix: {}", browser.s3_config.prefix)
+        format!("Prefix: {}", app.s3_config.prefix)
     };
 
     let prefix = Paragraph::new(prefix_text)
@@ -232,8 +232,8 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     f.render_widget(prefix, s3_settings_chunks[2]);
 
     // Endpoint URL
-    let endpoint_style = if browser.focus == FocusField::EndpointUrl {
-        if browser.input_mode == crate::ui::models::InputMode::Editing {
+    let endpoint_style = if app.focus == FocusField::EndpointUrl {
+        if app.input_mode == InputMode::Editing {
             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Yellow)
@@ -242,10 +242,10 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         Style::default()
     };
 
-    let endpoint_text = if browser.focus == FocusField::EndpointUrl && browser.input_mode == crate::ui::models::InputMode::Editing {
-        format!("Endpoint URL: {}", browser.input_buffer)
+    let endpoint_text = if app.focus == FocusField::EndpointUrl && app.input_mode == InputMode::Editing {
+        format!("Endpoint URL: {}", app.input_buffer)
     } else {
-        format!("Endpoint URL: {}", browser.s3_config.endpoint_url)
+        format!("Endpoint URL: {}", app.s3_config.endpoint_url)
     };
 
     let endpoint = Paragraph::new(endpoint_text)
@@ -253,8 +253,8 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     f.render_widget(endpoint, s3_settings_chunks[3]);
 
     // Access Key ID
-    let access_key_style = if browser.focus == FocusField::AccessKeyId {
-        if browser.input_mode == crate::ui::models::InputMode::Editing {
+    let access_key_style = if app.focus == FocusField::AccessKeyId {
+        if app.input_mode == InputMode::Editing {
             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Yellow)
@@ -263,10 +263,10 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         Style::default()
     };
 
-    let access_key_text = if browser.focus == FocusField::AccessKeyId && browser.input_mode == crate::ui::models::InputMode::Editing {
-        format!("Access Key ID: {}", browser.input_buffer)
+    let access_key_text = if app.focus == FocusField::AccessKeyId && app.input_mode == InputMode::Editing {
+        format!("Access Key ID: {}", app.input_buffer)
     } else {
-        format!("Access Key ID: {}", browser.s3_config.masked_access_key())
+        format!("Access Key ID: {}", app.s3_config.masked_access_key())
     };
 
     let access_key = Paragraph::new(access_key_text)
@@ -274,8 +274,8 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     f.render_widget(access_key, s3_settings_chunks[4]);
 
     // Secret Access Key
-    let secret_key_style = if browser.focus == FocusField::SecretAccessKey {
-        if browser.input_mode == crate::ui::models::InputMode::Editing {
+    let secret_key_style = if app.focus == FocusField::SecretAccessKey {
+        if app.input_mode == InputMode::Editing {
             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Yellow)
@@ -284,10 +284,10 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         Style::default()
     };
 
-    let secret_key_text = if browser.focus == FocusField::SecretAccessKey && browser.input_mode == crate::ui::models::InputMode::Editing {
-        format!("Secret Access Key: {}", browser.input_buffer)
+    let secret_key_text = if app.focus == FocusField::SecretAccessKey && app.input_mode == InputMode::Editing {
+        format!("Secret Access Key: {}", app.input_buffer)
     } else {
-        format!("Secret Access Key: {}", browser.s3_config.masked_secret_key())
+        format!("Secret Access Key: {}", app.s3_config.masked_secret_key())
     };
 
     let secret_key = Paragraph::new(secret_key_text)
@@ -295,18 +295,18 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     f.render_widget(secret_key, s3_settings_chunks[5]);
 
     // Path Style
-    let path_style_style = if browser.focus == FocusField::PathStyle {
+    let path_style_style = if app.focus == FocusField::PathStyle {
         Style::default().fg(Color::Yellow)
     } else {
         Style::default()
     };
-    let path_style_text = format!("Path Style: {}", browser.s3_config.path_style);
+    let path_style_text = format!("Path Style: {}", app.s3_config.path_style);
     let path_style = Paragraph::new(path_style_text)
         .style(path_style_style);
     f.render_widget(path_style, s3_settings_chunks[6]);
 
     // Snapshot List
-    let snapshot_style = if browser.focus == FocusField::SnapshotList {
+    let snapshot_style = if app.focus == FocusField::SnapshotList {
         Style::default().fg(Color::Yellow)
     } else {
         Style::default()
@@ -316,17 +316,17 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         .borders(Borders::ALL)
         .style(snapshot_style);
 
-    let snapshot_items: Vec<ListItem> = browser.snapshots
+    let snapshot_items: Vec<ListItem> = app.snapshot_browser.snapshots
         .iter()
         .enumerate()
         .map(|(i, snapshot)| {
             // Convert AWS DateTime to chrono DateTime
-            let timestamp = snapshot.last_modified.as_secs_f64();
+            let timestamp = snapshot.last_modified;
             let dt: DateTime<Utc> = DateTime::from_timestamp(timestamp as i64, 0).unwrap_or_default();
             let formatted_date = dt.format("%Y-%m-%d %H:%M:%S").to_string();
             let size_mb = snapshot.size as f64 / 1024.0 / 1024.0;
             let content = format!("{} - {:.2} MB - {}", snapshot.key, size_mb, formatted_date);
-            let style = if i == browser.selected_index {
+            let style = if i == app.snapshot_browser.selected_index {
                 Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
@@ -340,9 +340,9 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     f.render_widget(snapshot_list, chunks[3]);
 
     // Show help text at the bottom
-    let help_text = match browser.input_mode {
-        crate::ui::models::InputMode::Normal => "Press 'q' to quit, 'e' to edit, 't' to test connection, 'r' to refresh, Enter to select",
-        crate::ui::models::InputMode::Editing => "Press Esc to cancel, Enter to save",
+    let help_text = match app.input_mode {
+        InputMode::Normal => "Press 'q' to quit, 'e' to edit, 't' to test connection, 'r' to refresh, Enter to select",
+        InputMode::Editing => "Press Esc to cancel, Enter to save",
     };
     let help_paragraph = Paragraph::new(help_text)
         .style(Style::default().fg(Color::Gray))
@@ -359,7 +359,7 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     // We'll handle popups at the end to ensure they're on top
 
     // Show popup if needed - render last to ensure they're on top
-    match &browser.popup_state {
+    match &app.popup_state {
         PopupState::ConfirmRestore(snapshot) => {
             let area = centered_rect(60, 5, f.size());
             // Clear the area where the popup will be rendered
@@ -377,10 +377,10 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
             let area = centered_rect(60, 5, f.size());
             // Clear the area where the popup will be rendered
             f.render_widget(ratatui::widgets::Clear, area);
-            let rate_mb = *rate / 1024.0 / 1024.0;
+            let _rate_mb = rate / 1024.0 / 1024.0;
             let popup = Paragraph::new(vec![
                 Line::from(vec![Span::raw(format!("Downloading: {}", snapshot.key))]),
-                Line::from(vec![Span::raw(format!("Progress: {:.1}% ({:.2} MB/s)", *progress * 100.0, rate_mb))]),
+                Line::from(vec![Span::raw(format!("Progress: {:.1}%", progress * 100.0))]),
                 Line::from(vec![]),
                 Line::from(vec![Span::raw("Press Esc to cancel")]),
             ])
@@ -392,10 +392,10 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
             let area = centered_rect(60, 5, f.size());
             // Clear the area where the popup will be rendered
             f.render_widget(ratatui::widgets::Clear, area);
-            let rate_mb = *rate / 1024.0 / 1024.0;
+            let _rate_mb = rate / 1024.0 / 1024.0;
             let popup = Paragraph::new(vec![
                 Line::from(vec![Span::raw(format!("Cancel download of: {}", snapshot.key))]),
-                Line::from(vec![Span::raw(format!("Progress: {:.1}% ({:.2} MB/s)", *progress * 100.0, rate_mb))]),
+                Line::from(vec![Span::raw(format!("Progress: {:.1}%", progress * 100.0))]),
                 Line::from(vec![]),
                 Line::from(vec![Span::raw("Press 'y' to confirm cancel, 'n' to continue downloading")]),
             ])
@@ -475,16 +475,17 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
             f.render_widget(ratatui::widgets::Clear, area);
 
             // Create a progress bar
-            let _progress_percent = (*progress * 100.0) as u16;
+            let progress_value = progress; // Store in a local variable
+            let _progress_percent = (progress_value * 100.0) as u16;
             let progress_bar_width = 50;
-            let filled_width = (progress_bar_width as f32 * *progress) as usize;
+            let filled_width = (progress_bar_width as f32 * progress_value) as usize;
             let empty_width = progress_bar_width as usize - filled_width;
 
             let progress_bar = format!(
                 "[{}{}] {:.1}%",
                 "=".repeat(filled_width),
                 " ".repeat(empty_width),
-                *progress * 100.0
+                progress_value * 100.0
             );
 
             let popup = Paragraph::new(vec![
@@ -504,7 +505,7 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         _ => {}
     }
 
-    if let Some(error) = &browser.s3_config.error_message {
+    if let Some(error) = &app.s3_config.error_message {
         let error_block = Block::default()
             .title("Error")
             .borders(Borders::ALL);
@@ -514,9 +515,9 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
     }
 
     // If in editing mode, render an editing indicator at the highest z-layer
-    if browser.input_mode == crate::ui::models::InputMode::Editing {
+    if app.input_mode == InputMode::Editing {
         // Create a floating box for the editing field
-        let mut field_area = match browser.focus {
+        let mut field_area = match app.focus {
             FocusField::Bucket => s3_settings_chunks[0],
             FocusField::Region => s3_settings_chunks[1],
             FocusField::Prefix => s3_settings_chunks[2],
@@ -545,14 +546,14 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         f.render_widget(Clear, field_area);
 
         // Create a floating input box with border
-        let input_content = match browser.focus {
-            FocusField::Bucket => browser.input_buffer.clone(),
-            FocusField::Region => browser.input_buffer.clone(),
-            FocusField::Prefix => browser.input_buffer.clone(),
-            FocusField::EndpointUrl => browser.input_buffer.clone(),
-            FocusField::AccessKeyId => browser.input_buffer.clone(),
-            FocusField::SecretAccessKey => browser.input_buffer.clone(),
-            FocusField::PathStyle => browser.input_buffer.clone(),
+        let input_content = match app.focus {
+            FocusField::Bucket => app.input_buffer.clone(),
+            FocusField::Region => app.input_buffer.clone(),
+            FocusField::Prefix => app.input_buffer.clone(),
+            FocusField::EndpointUrl => app.input_buffer.clone(),
+            FocusField::AccessKeyId => app.input_buffer.clone(),
+            FocusField::SecretAccessKey => app.input_buffer.clone(),
+            FocusField::PathStyle => app.input_buffer.clone(),
             FocusField::PgHost => return,
             FocusField::PgPort => return,
             FocusField::PgUsername => return,
@@ -563,7 +564,7 @@ pub fn ui<B: Backend>(f: &mut Frame, browser: &mut SnapshotBrowser) {
         };
 
         // Get the field label
-        let field_label = match browser.focus {
+        let field_label = match app.focus {
             FocusField::Bucket => "Bucket",
             FocusField::Region => "Region",
             FocusField::Prefix => "Prefix",

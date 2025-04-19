@@ -1,4 +1,4 @@
-use rustored::{backup, ui, config};
+use rustored::{backup, config};
 use anyhow::Result;
 use clap::{Parser, Subcommand, command, arg};
 use rustored::postgres;
@@ -344,23 +344,24 @@ async fn main() -> Result<()> {
             let backend = CrosstermBackend::new(stdout);
             let mut terminal = Terminal::new(backend)?;
             let mut app = RustoredApp::new(
-                cli.bucket.clone(),
-                cli.region.clone(),
-                cli.prefix.clone(),
-                cli.endpoint_url.clone(),
-                cli.access_key_id.clone(),
-                cli.secret_access_key.clone(),
+                &cli.bucket,
+                &cli.region,
+                &cli.prefix,
+                &cli.endpoint_url,
+                &cli.access_key_id,
+                &cli.secret_access_key,
                 cli.path_style,
-                cli.host.clone(),
-                cli.port,
-                cli.username.clone(),
-                cli.password.clone(),
+                &cli.host,
+                &cli.port,
+                &cli.username,
+                &cli.password,
                 cli.use_ssl,
-                cli.db_name.clone(),
-                cli.es_host.clone(),
-                cli.es_index.clone(),
-                cli.qdrant_api_key.clone(),
+                &cli.db_name,
+                &cli.es_host,
+                &cli.es_index,
+                &cli.qdrant_api_key,
             );
+
             let res = app.run(&mut terminal).await?;
             disable_raw_mode()?;
             execute!(std::io::stdout(), LeaveAlternateScreen, crossterm::event::DisableMouseCapture)?;

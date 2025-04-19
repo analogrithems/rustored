@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 
 use tokio_postgres::Config as PgConfig;
-use log::{error, info, debug};
+use log::{error, info};
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
 use random_word::{Lang, get as random_word};
