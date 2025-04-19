@@ -136,6 +136,7 @@ pub fn render_qdrant_settings<B: Backend>(f: &mut Frame, app: &RustoredApp, area
     let help_text = Line::from(help_items);
     
     let help = Paragraph::new(help_text)
+        .style(Style::default().fg(Color::White))
         .alignment(Alignment::Left);
     
     debug!("Rendering navigation help text at the bottom of Qdrant settings (TDD rule #10)");

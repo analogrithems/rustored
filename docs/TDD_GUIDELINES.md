@@ -22,7 +22,8 @@ The Rustored project follows these specific TDD rules, each with concrete implem
    - Log important state changes and decisions
 
 4. **File Size Limits**
-   - Files should not exceed 500 lines of actual code (excluding comments and blank lines) to maintain readability and maintainability
+   - Soft limit: Files should not exceed 700 lines of actual code (excluding comments and blank lines) to maintain readability and maintainability
+   - Hard limit: Files must not exceed 1000 lines of actual code, requiring mandatory refactoring when exceeded
    - This encourages both modular code organization and comprehensive documentation
    - If a file grows too large, consider refactoring into smaller modules
 

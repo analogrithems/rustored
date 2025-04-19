@@ -8,20 +8,20 @@ use anyhow::Result;
 use log::debug;
 
 /// Handle popup key events
-/// 
+///
 /// This function processes key events when a popup is displayed
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `app` - A mutable reference to the RustoredApp
 /// * `key` - The key event to process
-/// 
+///
 /// # Returns
-/// 
+///
 /// A Result containing an Option<String> which is Some if a snapshot path is returned
 pub async fn handle_popup_events(app: &mut RustoredApp, key: KeyEvent) -> Result<Option<String>> {
     debug!("Handling popup key event: {:?}", key);
-    
+
     match &app.popup_state {
         PopupState::ConfirmRestore(snapshot) => {
             match key.code {
@@ -67,27 +67,39 @@ pub async fn handle_popup_events(app: &mut RustoredApp, key: KeyEvent) -> Result
             }
             return Ok(None);
         }
+        PopupState::TestS3Result(_) | PopupState::TestPgResult(_) => {
+            if key.code == KeyCode::Esc || key.code == KeyCode::Enter {
+                app.popup_state = PopupState::Hidden;
+            }
+            return Ok(None);
+        }
+        PopupState::TestingS3 | PopupState::TestingPg => {
+            if key.code == KeyCode::Esc {
+                app.popup_state = PopupState::Hidden;
+            }
+            return Ok(None);
+        }
         _ => {}
     }
-    
+
     Ok(None)
 }
 
 /// Handle editing mode key events
-/// 
+///
 /// This function processes key events when in editing mode
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `app` - A mutable reference to the RustoredApp
 /// * `key` - The key event to process
-/// 
+///
 /// # Returns
-/// 
+///
 /// A Result containing an Option<String> which is Some if a snapshot path is returned
 pub async fn handle_editing_mode(app: &mut RustoredApp, key: KeyEvent) -> Result<Option<String>> {
     debug!("Handling editing mode key event: {:?}", key);
-    
+
     match key.code {
         KeyCode::Enter => {
             // Apply the edited value
@@ -161,20 +173,20 @@ pub async fn handle_editing_mode(app: &mut RustoredApp, key: KeyEvent) -> Result
                 _ => {}
             }
             app.input_mode = InputMode::Normal;
-            
+
             // Update S3 client with new settings if S3 settings were changed
-            if matches!(app.focus, 
-                FocusField::Bucket | 
-                FocusField::Region | 
-                FocusField::Prefix | 
-                FocusField::EndpointUrl | 
-                FocusField::AccessKeyId | 
-                FocusField::SecretAccessKey | 
+            if matches!(app.focus,
+                FocusField::Bucket |
+                FocusField::Region |
+                FocusField::Prefix |
+                FocusField::EndpointUrl |
+                FocusField::AccessKeyId |
+                FocusField::SecretAccessKey |
                 FocusField::PathStyle
             ) {
                 app.snapshot_browser.s3_config = app.s3_config.clone();
                 let _ = app.snapshot_browser.init_client().await;
-                
+
                 // Reload snapshots with new settings
                 if let Err(e) = app.snapshot_browser.load_snapshots().await {
                     debug!("Failed to load snapshots: {}", e);
@@ -196,25 +208,25 @@ pub async fn handle_editing_mode(app: &mut RustoredApp, key: KeyEvent) -> Result
         }
         _ => {}
     }
-    
+
     Ok(None)
 }
 
 /// Handle normal mode key events
-/// 
+///
 /// This function processes key events when in normal mode
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `app` - A mutable reference to the RustoredApp
 /// * `key` - The key event to process
-/// 
+///
 /// # Returns
-/// 
+///
 /// A Result containing an Option<String> which is Some if a snapshot path is returned
 pub async fn handle_normal_mode(app: &mut RustoredApp, key: KeyEvent) -> Result<Option<String>> {
     debug!("Handling normal mode key event: {:?}", key);
-    
+
     match key.code {
         KeyCode::Char('q') => {
             // Quit
@@ -228,41 +240,40 @@ pub async fn handle_normal_mode(app: &mut RustoredApp, key: KeyEvent) -> Result<
         }
         KeyCode::Char('t') => {
             // Test S3 connection when focus is on S3 settings window
-            if matches!(app.focus, 
-                FocusField::Bucket | 
-                FocusField::Region | 
-                FocusField::Prefix | 
-                FocusField::EndpointUrl | 
-                FocusField::AccessKeyId | 
-                FocusField::SecretAccessKey | 
+            if matches!(app.focus,
+                FocusField::Bucket |
+                FocusField::Region |
+                FocusField::Prefix |
+                FocusField::EndpointUrl |
+                FocusField::AccessKeyId |
+                FocusField::SecretAccessKey |
                 FocusField::PathStyle
             ) {
                 // Show testing popup
                 app.popup_state = PopupState::TestingS3;
-                
+
                 // Test connection and update popup state with result
                 if let Err(e) = app.s3_config.test_connection(|state| app.popup_state = state).await {
                     debug!("S3 connection test failed: {}", e);
                 }
             }
-        },
-        KeyCode::Char('p') => {
+
             // Test PostgreSQL connection when focus is on PostgreSQL settings window
-            if matches!(app.focus, 
-                FocusField::PgHost | 
-                FocusField::PgPort | 
-                FocusField::PgUsername | 
-                FocusField::PgPassword | 
-                FocusField::PgSsl | 
+            if matches!(app.focus,
+                FocusField::PgHost |
+                FocusField::PgPort |
+                FocusField::PgUsername |
+                FocusField::PgPassword |
+                FocusField::PgSsl |
                 FocusField::PgDbName
             ) {
                 // Only test if required fields are set
-                if app.pg_config.host.is_some() && 
-                   app.pg_config.port.is_some() && 
+                if app.pg_config.host.is_some() &&
+                   app.pg_config.port.is_some() &&
                    app.pg_config.db_name.is_some() {
                     // Show testing popup
                     app.popup_state = PopupState::TestingPg;
-                    
+
                     // Test connection and update popup state with result
                     if let Err(e) = app.pg_config.test_connection(|state| app.popup_state = state).await {
                         debug!("PostgreSQL connection test failed: {}", e);
@@ -276,29 +287,29 @@ pub async fn handle_normal_mode(app: &mut RustoredApp, key: KeyEvent) -> Result<
         KeyCode::Enter => handle_enter_key(app),
         _ => {}
     }
-    
+
     Ok(None)
 }
 
 /// Handle Tab key navigation
-/// 
+///
 /// This function processes Tab key presses to navigate between main UI sections
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `app` - A mutable reference to the RustoredApp
 fn handle_tab_navigation(app: &mut RustoredApp) {
     debug!("Handling Tab navigation, current focus: {:?}", app.focus);
-    
+
     // Cycle between main window sections only
     app.focus = match app.focus {
         // S3 Settings fields - move to Restore Target settings
-        FocusField::Bucket | 
-        FocusField::Region | 
-        FocusField::Prefix | 
-        FocusField::EndpointUrl | 
-        FocusField::AccessKeyId | 
-        FocusField::SecretAccessKey | 
+        FocusField::Bucket |
+        FocusField::Region |
+        FocusField::Prefix |
+        FocusField::EndpointUrl |
+        FocusField::AccessKeyId |
+        FocusField::SecretAccessKey |
         FocusField::PathStyle => {
             // Move to restore target settings
             match app.restore_target {
@@ -308,11 +319,11 @@ fn handle_tab_navigation(app: &mut RustoredApp) {
             }
         }
         // Restore Target settings - move to Snapshot List
-        FocusField::PgHost | 
-        FocusField::PgPort | 
-        FocusField::PgUsername | 
-        FocusField::PgPassword | 
-        FocusField::PgSsl | 
+        FocusField::PgHost |
+        FocusField::PgPort |
+        FocusField::PgUsername |
+        FocusField::PgPassword |
+        FocusField::PgSsl |
         FocusField::PgDbName |
         FocusField::EsHost |
         FocusField::EsIndex |
@@ -322,20 +333,20 @@ fn handle_tab_navigation(app: &mut RustoredApp) {
         // Default case
         _ => FocusField::Bucket,
     };
-    
+
     debug!("New focus after Tab navigation: {:?}", app.focus);
 }
 
 /// Handle Up key navigation
-/// 
+///
 /// This function processes Up key presses to navigate within UI sections
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `app` - A mutable reference to the RustoredApp
 fn handle_up_navigation(app: &mut RustoredApp) {
     debug!("Handling Up navigation, current focus: {:?}", app.focus);
-    
+
     match app.focus {
         FocusField::SnapshotList => {
             // Navigate snapshot list
@@ -352,33 +363,33 @@ fn handle_up_navigation(app: &mut RustoredApp) {
             // Navigate within settings panels
             let focus_fields = match app.focus {
                 // S3 Settings fields
-                FocusField::Bucket | 
-                FocusField::Region | 
-                FocusField::Prefix | 
-                FocusField::EndpointUrl | 
-                FocusField::AccessKeyId | 
-                FocusField::SecretAccessKey | 
+                FocusField::Bucket |
+                FocusField::Region |
+                FocusField::Prefix |
+                FocusField::EndpointUrl |
+                FocusField::AccessKeyId |
+                FocusField::SecretAccessKey |
                 FocusField::PathStyle => crate::ui::models::S3Config::focus_fields(),
-                
+
                 // PostgreSQL Settings fields
-                FocusField::PgHost | 
-                FocusField::PgPort | 
-                FocusField::PgUsername | 
-                FocusField::PgPassword | 
-                FocusField::PgSsl | 
+                FocusField::PgHost |
+                FocusField::PgPort |
+                FocusField::PgUsername |
+                FocusField::PgPassword |
+                FocusField::PgSsl |
                 FocusField::PgDbName => crate::ui::models::PostgresConfig::focus_fields(),
-                
+
                 // Elasticsearch Settings fields
-                FocusField::EsHost | 
+                FocusField::EsHost |
                 FocusField::EsIndex => crate::ui::models::ElasticsearchConfig::focus_fields(),
-                
+
                 // Qdrant Settings fields
                 FocusField::QdrantApiKey => crate::ui::models::QdrantConfig::focus_fields(),
-                
+
                 // Default case
                 _ => &[],
             };
-            
+
             if !focus_fields.is_empty() {
                 // Find current index
                 let current_index = focus_fields.iter().position(|&f| f == app.focus).unwrap_or(0);
@@ -388,26 +399,26 @@ fn handle_up_navigation(app: &mut RustoredApp) {
             }
         }
     }
-    
+
     debug!("New focus after Up navigation: {:?}", app.focus);
 }
 
 /// Handle Down key navigation
-/// 
+///
 /// This function processes Down key presses to navigate within UI sections
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `app` - A mutable reference to the RustoredApp
 fn handle_down_navigation(app: &mut RustoredApp) {
     debug!("Handling Down navigation, current focus: {:?}", app.focus);
-    
+
     match app.focus {
         FocusField::SnapshotList => {
             // Navigate snapshot list
             // Navigate snapshot list
             if !app.snapshot_browser.snapshots.is_empty() {
-                app.snapshot_browser.selected_index = 
+                app.snapshot_browser.selected_index =
                     (app.snapshot_browser.selected_index + 1) % app.snapshot_browser.snapshots.len();
             }
         }
@@ -415,33 +426,33 @@ fn handle_down_navigation(app: &mut RustoredApp) {
             // Navigate within settings panels
             let focus_fields = match app.focus {
                 // S3 Settings fields
-                FocusField::Bucket | 
-                FocusField::Region | 
-                FocusField::Prefix | 
-                FocusField::EndpointUrl | 
-                FocusField::AccessKeyId | 
-                FocusField::SecretAccessKey | 
+                FocusField::Bucket |
+                FocusField::Region |
+                FocusField::Prefix |
+                FocusField::EndpointUrl |
+                FocusField::AccessKeyId |
+                FocusField::SecretAccessKey |
                 FocusField::PathStyle => crate::ui::models::S3Config::focus_fields(),
-                
+
                 // PostgreSQL Settings fields
-                FocusField::PgHost | 
-                FocusField::PgPort | 
-                FocusField::PgUsername | 
-                FocusField::PgPassword | 
-                FocusField::PgSsl | 
+                FocusField::PgHost |
+                FocusField::PgPort |
+                FocusField::PgUsername |
+                FocusField::PgPassword |
+                FocusField::PgSsl |
                 FocusField::PgDbName => crate::ui::models::PostgresConfig::focus_fields(),
-                
+
                 // Elasticsearch Settings fields
-                FocusField::EsHost | 
+                FocusField::EsHost |
                 FocusField::EsIndex => crate::ui::models::ElasticsearchConfig::focus_fields(),
-                
+
                 // Qdrant Settings fields
                 FocusField::QdrantApiKey => crate::ui::models::QdrantConfig::focus_fields(),
-                
+
                 // Default case
                 _ => &[],
             };
-            
+
             if !focus_fields.is_empty() {
                 // Find current index
                 let current_index = focus_fields.iter().position(|&f| f == app.focus).unwrap_or(0);
@@ -451,20 +462,20 @@ fn handle_down_navigation(app: &mut RustoredApp) {
             }
         }
     }
-    
+
     debug!("New focus after Down navigation: {:?}", app.focus);
 }
 
 /// Handle Enter key press
-/// 
+///
 /// This function processes Enter key presses to edit fields or select snapshots
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `app` - A mutable reference to the RustoredApp
 fn handle_enter_key(app: &mut RustoredApp) {
     debug!("Handling Enter key press, current focus: {:?}", app.focus);
-    
+
     match app.focus {
         FocusField::SnapshotList => {
             // Select a snapshot for restoration
@@ -477,7 +488,7 @@ fn handle_enter_key(app: &mut RustoredApp) {
         _ => {
             // Enter edit mode for the current field
             app.input_mode = InputMode::Editing;
-            
+
             // Set input buffer to current field value
             app.input_buffer = match app.focus {
                 // S3 Settings fields
@@ -488,7 +499,7 @@ fn handle_enter_key(app: &mut RustoredApp) {
                 FocusField::AccessKeyId => app.s3_config.access_key_id.clone(),
                 FocusField::SecretAccessKey => app.s3_config.secret_access_key.clone(),
                 FocusField::PathStyle => app.s3_config.path_style.to_string(),
-                
+
                 // PostgreSQL Settings fields
                 FocusField::PgHost => app.pg_config.host.clone().unwrap_or_default(),
                 FocusField::PgPort => app.pg_config.port.map(|p| p.to_string()).unwrap_or_default(),
@@ -496,19 +507,19 @@ fn handle_enter_key(app: &mut RustoredApp) {
                 FocusField::PgPassword => app.pg_config.password.clone().unwrap_or_default(),
                 FocusField::PgSsl => app.pg_config.use_ssl.to_string(),
                 FocusField::PgDbName => app.pg_config.db_name.clone().unwrap_or_default(),
-                
+
                 // Elasticsearch Settings fields
                 FocusField::EsHost => app.es_config.host.clone().unwrap_or_default(),
                 FocusField::EsIndex => app.es_config.index.clone().unwrap_or_default(),
-                
+
                 // Qdrant Settings fields
                 FocusField::QdrantApiKey => app.qdrant_config.api_key.clone().unwrap_or_default(),
-                
+
                 // Default case
                 _ => String::new(),
             };
         }
     }
-    
+
     debug!("After Enter key press: input_mode={:?}, input_buffer={}", app.input_mode, app.input_buffer);
 }

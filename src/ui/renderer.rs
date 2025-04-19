@@ -149,7 +149,7 @@ pub fn ui<B: Backend>(f: &mut Frame, app: &mut RustoredApp) {
     // Render status bar
     let status = format!("Press 'q' to quit | Tab to switch focus | 1-3 to change restore target | Current focus: {:?}", app.focus);
     let status_bar = Paragraph::new(status)
-        .style(Style::default().fg(Color::White).bg(Color::Blue))
+        .style(Style::default().fg(Color::White))
         .alignment(Alignment::Center);
     
     f.render_widget(status_bar, chunks[2]);

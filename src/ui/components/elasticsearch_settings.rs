@@ -118,6 +118,7 @@ pub fn render_elasticsearch_settings<B: Backend>(f: &mut Frame, app: &RustoredAp
     let help_text = Line::from(help_items);
     
     let help = Paragraph::new(help_text)
+        .style(Style::default().fg(Color::White))
         .alignment(Alignment::Left);
     
     debug!("Rendering navigation help text at the bottom of Elasticsearch settings (TDD rule #10)");

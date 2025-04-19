@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use std::collections::HashSet;
 use regex::Regex;
 
-const MAX_FILE_LINES: usize = 500;
+const SOFT_MAX_FILE_LINES: usize = 700; // Soft limit - warning only
+const HARD_MAX_FILE_LINES: usize = 1000; // Hard limit - test fails
 const MIN_COMMENT_RATIO: f32 = 0.15; // At least 15% of lines should be comments
 
 /// Test to ensure that source files don't exceed the maximum allowed line count
@@ -222,45 +223,76 @@ fn test_file_size_limits() {
     // Get all Rust source files in the project
     let source_files = get_rust_source_files();
     
-    // Track files that exceed the limit
-    let mut oversized_files = Vec::new();
+    // Track files that exceed the limits
+    let mut soft_limit_files = Vec::new();
+    let mut hard_limit_files = Vec::new();
     
     // Check each file's line count
     for file_path in source_files {
         let line_count = count_lines(&file_path);
         
-        if line_count > MAX_FILE_LINES {
-            oversized_files.push((file_path.clone(), line_count));
+        if line_count > HARD_MAX_FILE_LINES {
+            hard_limit_files.push((file_path.clone(), line_count));
+        } else if line_count > SOFT_MAX_FILE_LINES {
+            soft_limit_files.push((file_path.clone(), line_count));
         }
     }
     
     // Debug output to show all file sizes
     println!("\nFile size check results:");
-    println!("Maximum allowed lines: {}", MAX_FILE_LINES);
-    println!("Found {} files exceeding the limit", oversized_files.len());
+    println!("Soft limit (warning): {} lines", SOFT_MAX_FILE_LINES);
+    println!("Hard limit (error): {} lines", HARD_MAX_FILE_LINES);
+    println!("Found {} files exceeding soft limit", soft_limit_files.len());
+    println!("Found {} files exceeding hard limit", hard_limit_files.len());
     
-    // If there are oversized files, print a warning
-    if !oversized_files.is_empty() {
+    // If there are files exceeding the soft limit, print a warning
+    if !soft_limit_files.is_empty() || !hard_limit_files.is_empty() {
         let mut warning = String::from("\n⚠️  CODE QUALITY WARNING ⚠️\n");
-        warning.push_str("The following files exceed the maximum line count limit:\n");
+        warning.push_str("File size limits:\n");
+        warning.push_str(&format!("- Soft limit (warning): {} lines\n", SOFT_MAX_FILE_LINES));
+        warning.push_str(&format!("- Hard limit (error): {} lines\n\n", HARD_MAX_FILE_LINES));
         
         // Create a vector to store file names for later reference
         let mut large_files = Vec::new();
         
-        // Process the oversized files
-        for (file_path, line_count) in &oversized_files {
-            let relative_path = file_path.strip_prefix(project_root()).unwrap_or(file_path);
-            warning.push_str(&format!(
-                "- {} has {} lines (exceeds limit of {})\n", 
-                relative_path.display(), 
-                line_count, 
-                MAX_FILE_LINES
-            ));
-            
-            // Store the file name for later
-            if let Some(file_name) = file_path.file_name() {
-                large_files.push(file_name.to_string_lossy().to_string());
+        // Process files exceeding soft limit
+        if !soft_limit_files.is_empty() {
+            warning.push_str("Files exceeding soft limit (warning):\n");
+            for (file_path, line_count) in &soft_limit_files {
+                let relative_path = file_path.strip_prefix(project_root()).unwrap_or(file_path);
+                warning.push_str(&format!(
+                    "- {} has {} lines (exceeds soft limit of {})\n", 
+                    relative_path.display(), 
+                    line_count, 
+                    SOFT_MAX_FILE_LINES
+                ));
+                
+                // Store the file name for later
+                if let Some(file_name) = file_path.file_name() {
+                    large_files.push(file_name.to_string_lossy().to_string());
+                }
             }
+            warning.push_str("\n");
+        }
+        
+        // Process files exceeding hard limit
+        if !hard_limit_files.is_empty() {
+            warning.push_str("Files exceeding hard limit (ERROR):\n");
+            for (file_path, line_count) in &hard_limit_files {
+                let relative_path = file_path.strip_prefix(project_root()).unwrap_or(file_path);
+                warning.push_str(&format!(
+                    "- {} has {} lines (exceeds hard limit of {})\n", 
+                    relative_path.display(), 
+                    line_count, 
+                    HARD_MAX_FILE_LINES
+                ));
+                
+                // Store the file name for later
+                if let Some(file_name) = file_path.file_name() {
+                    large_files.push(file_name.to_string_lossy().to_string());
+                }
+            }
+            warning.push_str("\n");
         }
         
         warning.push_str("\nRefactoring Recommendations:\n");
@@ -284,8 +316,14 @@ fn test_file_size_limits() {
         
         warning.push_str("\nMaintaining smaller files improves code readability, testability, and maintainability.\n");
         
-        // Print warning but don't fail the test - this is just a warning
+        // Print warning
         println!("{}", warning);
+        
+        // Fail the test if any files exceed the hard limit
+        assert!(hard_limit_files.is_empty(), 
+            "Found {} files exceeding the hard limit of {} lines. \
+            See test output for details.", 
+            hard_limit_files.len(), HARD_MAX_FILE_LINES);
     }
 }
 

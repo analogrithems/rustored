@@ -139,6 +139,7 @@ pub fn render_postgres_settings<B: Backend>(f: &mut Frame, app: &RustoredApp, ar
     let help_text = Line::from(help_items);
     
     let help = Paragraph::new(help_text)
+        .style(Style::default().fg(Color::White))
         .alignment(Alignment::Left);
     
     debug!("Rendering navigation help text at the bottom of PostgreSQL settings (TDD rule #10)");

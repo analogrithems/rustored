@@ -160,7 +160,7 @@ pub fn render_s3_settings<B: Backend>(f: &mut Frame, app: &RustoredApp, area: Re
     // Create the help legend and place it at the bottom as per TDD rule #10
     let help_text = Line::from(help_items);
     let help_legend = Paragraph::new(help_text)
-        .style(Style::default().fg(Color::Gray))
+        .style(Style::default().fg(Color::White))
         .alignment(ratatui::layout::Alignment::Left);
     
     debug!("Rendering navigation help text at the bottom of S3 settings (TDD rule #10)");

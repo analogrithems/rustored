@@ -86,7 +86,7 @@ pub fn render_restore_target<B: Backend>(f: &mut Frame, app: &RustoredApp, area:
     ]);
     
     let help_paragraph = Paragraph::new(help_text)
-        .style(Style::default())
+        .style(Style::default().fg(Color::White))
         .alignment(ratatui::layout::Alignment::Left);
     
     debug!("Rendering help text at the bottom of restore target section (TDD rule #10)");
