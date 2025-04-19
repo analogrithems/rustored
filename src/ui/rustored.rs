@@ -205,7 +205,7 @@ impl RustoredApp {
     pub async fn restore_snapshot<B: Backend>(&mut self, snapshot: &BackupMetadata, terminal: &mut Terminal<B>, file_path: &str) -> Result<()> {
         debug!("Starting restore of snapshot: {:?} from file: {}", snapshot, file_path);
         debug!("Using restore target: {:?}", self.restore_target);
-        use std::path::{Path, PathBuf};
+        use std::path::Path;
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::Arc;
         use tokio::time::sleep;
