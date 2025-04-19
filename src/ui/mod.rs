@@ -6,3 +6,4 @@ pub mod rustored;
 pub mod layouts;
 pub mod components;
 pub mod app;
+pub mod key_handler;

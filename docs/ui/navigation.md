@@ -4,16 +4,29 @@ This document provides a comprehensive guide to the navigation system in the Rus
 
 ## UI Layout
 
-The Rustored UI is organized into three main sections:
+The Rustored UI is organized according to TDD rule #7, with a two-row layout:
 
-![UI Layout Diagram](../images/ui_layout.png)
+```ascii
+┌─────────────────┬─────────────────┬─────────────────┐
+│                 │                 │                 │
+│   S3 Settings   │ Restore Target  │ Target-Specific │
+│                 │   Selection     │    Settings     │
+│                 │                 │                 │
+├─────────────────┴─────────────────┴─────────────────┤
+│                                                     │
+│                 Snapshot Browser                    │
+│                                                     │
+└─────────────────────────────────────────────────────┘
+```
 
-1. **Title Bar**: Displays the application title at the top of the screen
-2. **Settings Row**: Contains three panels side by side:
-   - **S3 Settings**: Configuration for S3 connection (left panel)
-   - **Restore Target**: Selection options for the target type (middle panel)
-   - **Restore Settings**: Dynamic settings panel for the selected target (right panel)
-3. **Snapshot List**: Displays available snapshots from S3 (bottom panel)
+1. **Top Row**: Contains three panels side by side:
+   - **S3 Settings** (left panel): Configuration for S3 connection parameters
+   - **Restore Target Selection** (middle panel): Options to select the target datastore type (PostgreSQL, Elasticsearch, Qdrant)
+   - **Target-Specific Settings** (right panel): Dynamic settings panel that changes based on the selected restore target
+
+2. **Bottom Row**: Contains the snapshot browser that displays available snapshots from S3
+
+For a more detailed view of the UI layout, see the [full diagram](../images/ui_layout.svg).
 
 ## Keyboard Navigation
 
